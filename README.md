@@ -7,16 +7,17 @@ Your AI-powered second brain. Record everything, retrieve anything.
 ```bash
 # Install dependencies
 bun install
+cd web && bun install && cd ..
 
 # Set up environment
 cp env.example .env
 # Edit .env with your credentials
 
-# Run
+# Run both servers
 bun run dev
 ```
 
-Open http://localhost:3000
+Open http://localhost:5173
 
 ## What is this?
 
@@ -24,9 +25,7 @@ Jot is a personal AI assistant that captures and organizes your life. The AI has
 
 - **PostgreSQL database** - designs its own schema, runs migrations
 - **Object storage** - stores files, voice recordings, images
-- **Dynamic UI** - generates custom displays for your data
-
-Talk to it via text or voice. It remembers everything.
+- **Response presentation** - all responses are HTML, AI controls the UI
 
 ## Environment Variables
 
@@ -41,13 +40,12 @@ R2_BUCKET_NAME=jot-storage
 
 ## Tech Stack
 
-- Bun + TypeScript
-- Hono (API)
-- Anthropic Claude (AI)
-- Neon PostgreSQL
-- Cloudflare R2
+- **Backend**: Bun + Hono + Vercel AI SDK
+- **Frontend**: React + Vite + TypeScript
+- **AI**: Anthropic Claude
+- **Database**: Neon PostgreSQL
+- **Storage**: Cloudflare R2
 
 ## License
 
 MIT
-

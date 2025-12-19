@@ -2,12 +2,7 @@
 
 ## ⚠️ IMPORTANT: Keep Documentation Updated
 
-**When making changes to this project, always update the relevant `claude.md` files.** Each major directory has its own `claude.md` with specific context. Update them when:
-
-- Adding new features or capabilities
-- Changing architecture or data flow
-- Adding new tools or integrations
-- Modifying the database schema patterns
+**When making changes to this project, always update the relevant `claude.md` files.** Each major directory has its own `claude.md` with specific context.
 
 ## Project Overview
 
@@ -15,129 +10,90 @@ Jot is a personal AI assistant for recording and retrieving life knowledge. The 
 
 - **PostgreSQL database** (Neon) - schema design, migrations, queries
 - **Object storage** (Cloudflare R2) - files, voice recordings, images
-- **Dynamic UI generation** - arbitrary HTML/CSS/JS rendered inline
+- **Dynamic UI** - responses are HTML, AI controls presentation
 
 ## Tech Stack
 
 - **Runtime**: Bun
-- **Language**: TypeScript
-- **Backend**: Hono (lightweight web framework)
-- **AI**: Vercel AI SDK with Anthropic Claude (model-agnostic)
-- **Database**: Neon PostgreSQL (postgres.js driver)
-- **Storage**: Cloudflare R2 (S3-compatible)
-- **Frontend**: Vanilla HTML/CSS/JS with SSE streaming
+- **Backend**: Hono + Vercel AI SDK (Anthropic Claude)
+- **Frontend**: React + Vite + TypeScript
+- **Database**: Neon PostgreSQL
+- **Storage**: Cloudflare R2
 
 ## Project Structure
 
 ```
 jot/
-├── src/
-│   ├── index.ts          # Entry point, Hono app setup
-│   ├── config.ts         # Environment configuration
+├── src/                    # Backend (Bun + Hono)
+│   ├── index.ts            # API server entry
+│   ├── config.ts           # Environment config
 │   ├── ai/
-│   │   └── assistant.ts  # AI SDK integration, tools, streaming
+│   │   └── assistant.ts    # AI SDK, tools, streaming
 │   ├── db/
-│   │   └── client.ts     # PostgreSQL client and helpers
+│   │   └── client.ts       # PostgreSQL client
 │   ├── server/
-│   │   └── api.ts        # API routes (SSE streaming)
+│   │   └── api.ts          # API routes
 │   └── storage/
-│       └── r2.ts         # Cloudflare R2 client
-├── public/
-│   ├── index.html        # Chat UI
-│   ├── styles.css        # Dark theme, tool/UI styles
-│   └── app.js            # SSE client, streaming render
-├── claude.md             # This file
-└── env.example           # Environment variables template
+│       └── r2.ts           # R2 client
+├── web/                    # Frontend (React + Vite)
+│   ├── src/
+│   │   ├── App.tsx
+│   │   ├── hooks/useChat.ts
+│   │   └── components/
+│   └── vite.config.ts
+├── package.json
+└── claude.md
 ```
-
-## Key Concepts
-
-### Streaming Everything
-
-All responses stream via SSE with these event types:
-
-- `text-delta` - Streamed text chunks
-- `tool-call` - Tool invocation (shown to user)
-- `tool-result` - Tool response (collapsible)
-- `ui` - Rendered HTML/CSS/JS (inline)
-- `done` / `error`
-
-### AI Tool Access
-
-Using Vercel AI SDK's `tool()` with Zod schemas:
-
-1. `execute_sql` - Run any SQL query
-2. `get_database_schema` - Inspect current schema
-3. `upload_file` / `get_file` / `delete_file` / `list_files`
-4. `get_upload_url` / `get_download_url` - Presigned URLs
-
-### UI Rendering (XML Tags)
-
-UI is NOT a tool - it's inline XML tags in the response text:
-
-```xml
-<render_ui>
-<html>...</html>
-<css>...</css>
-<js>...</js>
-</render_ui>
-```
-
-This streams naturally with the text, and the frontend parses/renders it progressively.
-
-### Dynamic Schema
-
-The AI decides its own database schema. It should:
-
-- Start simple, evolve as patterns emerge
-- Use JSONB for flexible data
-- Add timestamps to everything
-- Prefer soft deletes (Neon has time travel)
-
-### UI Generation
-
-The AI generates arbitrary HTML/CSS/JS:
-
-- Rendered inline in the conversation timeline
-- Full creative control - no templates
-- JS executes with `container` reference
 
 ## Development
 
 ```bash
-# Install dependencies
+# Install all dependencies
 bun install
+cd web && bun install && cd ..
 
-# Run development server (hot reload)
+# Run both servers (API :3000, Vite :5173)
 bun run dev
 
-# Environment setup
-cp env.example .env
-# Fill in your credentials
+# Or separately
+bun run dev:api
+bun run dev:web
 ```
 
-## API Endpoints
+Open http://localhost:5173
 
-- `GET /api/health` - Health check
-- `POST /api/chat` - SSE streaming chat
-- `GET /api/debug/schema` - View database schema
-- `POST /api/debug/sql` - Execute raw SQL
-- `GET /api/debug/files` - List R2 files
+## Key Concepts
 
-## Design Decisions
+### Streaming
 
-1. **Vercel AI SDK** - Model-agnostic, excellent streaming support
-2. **All streaming** - User sees everything as it happens
-3. **Visible tool calls** - Technical user wants transparency
-4. **Inline UIs** - Part of conversation history, re-visitable
-5. **No ORM** - AI uses raw SQL for maximum flexibility
-6. **Vanilla frontend** - Simple, no build step, easy to modify
+SSE stream from `/api/chat` with events:
 
-## Common Tasks
+- `text-delta` - Streamed text
+- `tool-call` - Tool invocation
+- `tool-result` - Tool response
+- `done` / `error`
 
-### Adding a New Tool
+### Response Format
 
-Add to `tools` object in `src/ai/assistant.ts`:
+ALL assistant responses are HTML. AI decides presentation:
+
+- Simple: `<p>Got it.</p>`
+- Rich: Tables, charts, interactive elements with `<script>`
+
+### Tools
+
+Using Vercel AI SDK `tool()`:
+
+1. `execute_sql` - Full database access
+2. `get_database_schema` - Introspect tables
+3. `upload_file` / `get_file` / `delete_file` / `list_files`
+4. `get_upload_url` / `get_download_url`
+
+## Adding Features
+
+### New Tool
+
+In `src/ai/assistant.ts`:
 
 ```typescript
 new_tool: tool({
@@ -147,15 +103,16 @@ new_tool: tool({
 }),
 ```
 
-### Changing Models
+### New Component
 
-In `src/ai/assistant.ts`:
+In `web/src/components/`:
 
-```typescript
-import { openai } from "@ai-sdk/openai";
-model: openai("gpt-4-turbo");
+```tsx
+export function MyComponent({ prop }: Props) {
+  return <div>...</div>;
+}
 ```
 
-### Modifying AI Behavior
+### Changing AI Behavior
 
-System prompt is at top of `src/ai/assistant.ts`
+System prompt at top of `src/ai/assistant.ts`
