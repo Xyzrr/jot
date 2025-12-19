@@ -1,6 +1,6 @@
 // === State ===
 const state = {
-  messages: [], // Full conversation history
+  messages: [],
   isLoading: false,
   isRecording: false,
   mediaRecorder: null,
@@ -78,8 +78,9 @@ async function sendMessage() {
   handleInputChange();
 }
 
-// === Streaming Response with XML Tag Parsing ===
+// === Streaming Response ===
 async function streamResponse() {
+  // Create assistant message container
   const messageEl = document.createElement('div');
   messageEl.className = 'message assistant';
   
@@ -90,13 +91,51 @@ async function streamResponse() {
   const contentWrapper = document.createElement('div');
   contentWrapper.className = 'message-content-wrapper';
   
+  // Toggle bar for render/code view
+  const toggleBar = document.createElement('div');
+  toggleBar.className = 'ui-toggle-bar';
+  toggleBar.innerHTML = `
+    <button class="ui-toggle active" data-view="render">render</button>
+    <button class="ui-toggle" data-view="code">code</button>
+  `;
+  contentWrapper.appendChild(toggleBar);
+  
+  // Render view - where HTML gets rendered
+  const renderView = document.createElement('div');
+  renderView.className = 'ui-view ui-render-view active';
+  contentWrapper.appendChild(renderView);
+  
+  // Code view - raw text
+  const codeView = document.createElement('div');
+  codeView.className = 'ui-view ui-code-view';
+  codeView.innerHTML = '<pre class="ui-code-pre"><code></code></pre>';
+  contentWrapper.appendChild(codeView);
+  
+  // Tool calls container (inserted before toggle bar when tools are used)
+  const toolsContainer = document.createElement('div');
+  toolsContainer.className = 'tools-container';
+  contentWrapper.insertBefore(toolsContainer, toggleBar);
+  
+  // Toggle handler
+  toggleBar.addEventListener('click', (e) => {
+    const btn = e.target.closest('.ui-toggle');
+    if (!btn) return;
+    
+    const view = btn.dataset.view;
+    toggleBar.querySelectorAll('.ui-toggle').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    
+    renderView.classList.toggle('active', view === 'render');
+    codeView.classList.toggle('active', view === 'code');
+  });
+  
   messageEl.appendChild(avatar);
   messageEl.appendChild(contentWrapper);
   messagesContainer.appendChild(messageEl);
 
-  // Parser state
-  const parser = createUIParser(contentWrapper);
   let fullText = '';
+  let isStreaming = true;
+  contentWrapper.classList.add('streaming');
 
   try {
     const response = await fetch('/api/chat', {
@@ -132,28 +171,31 @@ async function streamResponse() {
             switch (event.type) {
               case 'text-delta':
                 fullText += event.content;
-                parser.push(event.content);
+                // Update both views
+                codeView.querySelector('code').textContent = fullText;
+                renderHTML(renderView, fullText);
                 break;
 
               case 'tool-call':
-                parser.flush(); // Flush any pending text
-                renderToolCall(contentWrapper, event.toolName, event.args);
+                renderToolCall(toolsContainer, event.toolName, event.args);
                 break;
 
               case 'tool-result':
-                renderToolResult(contentWrapper, event.toolName, event.result);
+                renderToolResult(toolsContainer, event.toolName, event.result);
                 break;
 
               case 'error':
-                parser.flush();
-                renderError(contentWrapper, event.message);
+                renderView.innerHTML = `<p class="error">Error: ${event.message}</p>`;
                 break;
 
               case 'done':
-                parser.finish();
+                isStreaming = false;
+                contentWrapper.classList.remove('streaming');
                 if (fullText) {
                   state.messages.push({ role: 'assistant', content: fullText });
                 }
+                // Execute any scripts in the final HTML
+                executeScripts(renderView);
                 break;
             }
           } catch (e) {
@@ -165,147 +207,48 @@ async function streamResponse() {
       messageEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
   } catch (error) {
-    parser.flush();
-    renderError(contentWrapper, error.message);
+    renderView.innerHTML = `<p class="error">Error: ${error.message}</p>`;
+    contentWrapper.classList.remove('streaming');
   }
 }
 
-// === UI Parser - Handles <render_ui> tags in streamed text ===
-function createUIParser(container) {
-  let textBuffer = '';
-  let currentTextBlock = null;
-  let uiBuffer = '';
-  let inRenderUI = false;
-  let currentUIElement = null;
+function renderHTML(container, html) {
+  // Render HTML but don't execute scripts yet (wait for done)
+  // Extract and hold scripts
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = html;
+  
+  // Remove script tags from render (we'll execute them on done)
+  tempDiv.querySelectorAll('script').forEach(s => s.remove());
+  
+  container.innerHTML = tempDiv.innerHTML;
+  
+  // Apply any style tags
+  const styles = container.querySelectorAll('style');
+  // Styles are automatically applied when in DOM
+}
 
-  function flushTextBuffer() {
-    if (textBuffer.trim()) {
-      if (!currentTextBlock) {
-        currentTextBlock = document.createElement('div');
-        currentTextBlock.className = 'message-text';
-        container.appendChild(currentTextBlock);
-      }
-      currentTextBlock.innerHTML = formatMarkdown(textBuffer);
-    }
-  }
-
-  function createUIPlaceholder() {
-    currentUIElement = document.createElement('div');
-    currentUIElement.className = 'inline-ui streaming';
-    currentUIElement.innerHTML = `
-      <div class="inline-ui-header">
-        <span class="ui-indicator">◉</span>
-        <span class="ui-label">Rendering UI...</span>
-      </div>
-      <div class="inline-ui-preview"></div>
-    `;
-    container.appendChild(currentUIElement);
-    currentTextBlock = null; // Reset text block after UI
-  }
-
-  function updateUIPreview() {
-    if (!currentUIElement) return;
-    const preview = currentUIElement.querySelector('.inline-ui-preview');
-    // Show a preview of what's being generated
-    const previewText = uiBuffer.length > 200 
-      ? '...' + uiBuffer.slice(-200) 
-      : uiBuffer;
-    preview.textContent = previewText;
-  }
-
-  function finalizeUI() {
-    if (!currentUIElement || !uiBuffer) return;
-
-    // Parse the XML content
-    const html = extractTag(uiBuffer, 'html');
-    const css = extractTag(uiBuffer, 'css');
-    const js = extractTag(uiBuffer, 'js');
-
-    // Replace placeholder with actual UI
-    currentUIElement.className = 'inline-ui';
-    currentUIElement.innerHTML = '';
-
-    if (css) {
-      const styleEl = document.createElement('style');
-      styleEl.textContent = css;
-      currentUIElement.appendChild(styleEl);
-    }
-
-    const contentEl = document.createElement('div');
-    contentEl.className = 'inline-ui-content';
-    contentEl.innerHTML = html || '';
-    currentUIElement.appendChild(contentEl);
-
-    // Execute JS if provided
-    if (js) {
+function executeScripts(container) {
+  // Re-parse the original content and execute scripts
+  // Scripts were stripped during streaming for safety
+  const fullHTML = container.innerHTML;
+  
+  // Find script content in the original (we need to get it from state)
+  const lastAssistant = state.messages.filter(m => m.role === 'assistant').pop();
+  if (!lastAssistant) return;
+  
+  const scriptMatch = lastAssistant.content.match(/<script>([\s\S]*?)<\/script>/gi);
+  if (scriptMatch) {
+    scriptMatch.forEach(script => {
+      const code = script.replace(/<\/?script>/gi, '');
       try {
-        const fn = new Function('container', js);
-        fn(contentEl);
-      } catch (error) {
-        console.error('Error executing UI script:', error);
+        const fn = new Function('container', code);
+        fn(container);
+      } catch (e) {
+        console.error('Script execution error:', e);
       }
-    }
-
-    currentUIElement = null;
-    uiBuffer = '';
+    });
   }
-
-  function extractTag(content, tagName) {
-    const regex = new RegExp(`<${tagName}>([\\s\\S]*?)</${tagName}>`, 'i');
-    const match = content.match(regex);
-    return match ? match[1].trim() : '';
-  }
-
-  return {
-    push(chunk) {
-      for (const char of chunk) {
-        if (inRenderUI) {
-          uiBuffer += char;
-          
-          // Check for closing tag
-          if (uiBuffer.endsWith('</render_ui>')) {
-            uiBuffer = uiBuffer.slice(0, -12); // Remove closing tag
-            finalizeUI();
-            inRenderUI = false;
-          } else {
-            // Update preview periodically
-            if (uiBuffer.length % 50 === 0) {
-              updateUIPreview();
-            }
-          }
-        } else {
-          textBuffer += char;
-          
-          // Check for opening tag
-          if (textBuffer.endsWith('<render_ui>')) {
-            textBuffer = textBuffer.slice(0, -11); // Remove opening tag
-            flushTextBuffer();
-            textBuffer = '';
-            inRenderUI = true;
-            uiBuffer = '';
-            createUIPlaceholder();
-          }
-        }
-      }
-      
-      // Update text display
-      if (!inRenderUI && textBuffer) {
-        flushTextBuffer();
-      }
-    },
-
-    flush() {
-      flushTextBuffer();
-    },
-
-    finish() {
-      if (inRenderUI) {
-        // Incomplete UI block - finalize what we have
-        finalizeUI();
-      }
-      flushTextBuffer();
-    }
-  };
 }
 
 function renderUserMessage(content) {
@@ -318,7 +261,7 @@ function renderUserMessage(content) {
 
   const contentEl = document.createElement('div');
   contentEl.className = 'message-content';
-  contentEl.innerHTML = formatMarkdown(content);
+  contentEl.textContent = content; // Plain text for user messages
 
   messageEl.appendChild(avatar);
   messageEl.appendChild(contentEl);
@@ -363,22 +306,6 @@ function renderToolResult(container, toolName, result) {
   resultEl.appendChild(header);
   resultEl.appendChild(dataEl);
   container.appendChild(resultEl);
-}
-
-function renderError(container, message) {
-  const errorEl = document.createElement('div');
-  errorEl.className = 'message-error';
-  errorEl.textContent = `Error: ${message}`;
-  container.appendChild(errorEl);
-}
-
-function formatMarkdown(text) {
-  return text
-    .replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    .replace(/\n/g, '<br>');
 }
 
 // === Voice Recording ===

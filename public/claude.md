@@ -104,15 +104,15 @@ UIs are parsed from XML tags in the streamed text response:
 </render_ui>
 ```
 
-The `createUIParser()` function:
+The `createUIParser()` function renders **progressively**:
 
-1. Detects `<render_ui>` opening tag
-2. Shows streaming placeholder with live preview
-3. Accumulates content until `</render_ui>`
-4. Extracts `<html>`, `<css>`, `<js>` sections
-5. Renders final UI and executes JS
+1. Detects `<render_ui>` opening tag → creates container with streaming indicator
+2. As `<html>` content streams → updates innerHTML live
+3. As `<css>` content streams → updates `<style>` tag live
+4. Stores `<js>` content but waits to execute
+5. On `</render_ui>` → removes streaming state, executes JS
 
-This allows UIs to stream naturally alongside text, with visual feedback during generation.
+This means the UI visually builds up as tokens arrive - you see the HTML structure appear, styles apply, and finally interactions activate.
 
 ## Design System
 
