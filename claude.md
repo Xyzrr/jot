@@ -57,7 +57,8 @@ my_tool: tool({
 ## SSE Events
 
 `POST /api/chat` streams:
+
 - `text-delta` - content chunk
 - `tool-call` - tool invocation
-- `tool-result` - tool response  
+- `tool-result` - tool response
 - `done` / `error`

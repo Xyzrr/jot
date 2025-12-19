@@ -249,7 +249,7 @@ export async function* chatStream(
 
   try {
     const result = streamText({
-      model: anthropic("claude-sonnet-4-20250514"),
+      model: anthropic("claude-opus-4-5-20251101"),
       system: SYSTEM_PROMPT + dbContext,
       messages: coreMessages,
       tools,
