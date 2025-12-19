@@ -10,6 +10,7 @@ export interface Message {
 export type Block =
   | { type: "text"; content: string }
   | { type: "tool-call"; toolName: string; args: unknown }
+  | { type: "tool-call-streaming"; toolName: string; partialArgs: string }
   | { type: "tool-result"; toolName: string; result: unknown };
 
 interface ChatState {
@@ -146,16 +147,63 @@ export function useChat() {
                     updateAssistant(blocks, fullText);
                     break;
 
+                  case "tool-call-streaming":
+                    // Update or add streaming block for code being generated
+                    currentBlockText = ""; // Reset for next text block
+                    const lastStreamingBlock = blocks[blocks.length - 1];
+                    if (
+                      lastStreamingBlock?.type === "tool-call-streaming" &&
+                      lastStreamingBlock.toolName === event.toolName
+                    ) {
+                      // Update existing streaming block
+                      blocks = [
+                        ...blocks.slice(0, -1),
+                        {
+                          type: "tool-call-streaming",
+                          toolName: event.toolName,
+                          partialArgs: event.partialArgs,
+                        },
+                      ];
+                    } else {
+                      // Add new streaming block
+                      blocks = [
+                        ...blocks,
+                        {
+                          type: "tool-call-streaming",
+                          toolName: event.toolName,
+                          partialArgs: event.partialArgs,
+                        },
+                      ];
+                    }
+                    updateAssistant(blocks, fullText);
+                    break;
+
                   case "tool-call":
                     currentBlockText = ""; // Reset for next text block
-                    blocks = [
-                      ...blocks,
-                      {
-                        type: "tool-call",
-                        toolName: event.toolName,
-                        args: event.args,
-                      },
-                    ];
+                    // Replace any streaming block with the final tool-call
+                    const prevBlock = blocks[blocks.length - 1];
+                    if (
+                      prevBlock?.type === "tool-call-streaming" &&
+                      prevBlock.toolName === event.toolName
+                    ) {
+                      blocks = [
+                        ...blocks.slice(0, -1),
+                        {
+                          type: "tool-call",
+                          toolName: event.toolName,
+                          args: event.args,
+                        },
+                      ];
+                    } else {
+                      blocks = [
+                        ...blocks,
+                        {
+                          type: "tool-call",
+                          toolName: event.toolName,
+                          args: event.args,
+                        },
+                      ];
+                    }
                     updateAssistant(blocks, fullText);
                     break;
 

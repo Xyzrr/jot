@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import type { Message as MessageType, Block } from "../hooks/useChat";
 import { ToolCall } from "./ToolCall";
 import { ToolResult } from "./ToolResult";
+import { CodeStreaming } from "./CodeStreaming";
 
 interface Props {
   message: MessageType;
@@ -94,6 +95,8 @@ function BlockRenderer({ block }: { block: Block }) {
       return <TextBlock content={block.content} />;
     case "tool-call":
       return <ToolCall toolName={block.toolName} args={block.args} />;
+    case "tool-call-streaming":
+      return <CodeStreaming toolName={block.toolName} partialArgs={block.partialArgs} />;
     case "tool-result":
       return <ToolResult toolName={block.toolName} result={block.result} />;
   }

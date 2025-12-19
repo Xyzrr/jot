@@ -10,6 +10,7 @@ import {
   getUploadUrl,
   getDownloadUrl,
 } from "../storage/r2";
+import { executePython } from "../python/executor";
 
 // System prompt
 const SYSTEM_PROMPT = `You are Jot, a highly capable AI assistant that serves as a personal knowledge and life management system. You have direct access to:
@@ -17,6 +18,8 @@ const SYSTEM_PROMPT = `You are Jot, a highly capable AI assistant that serves as
 1. **PostgreSQL Database (Neon)**: Full SQL access - you decide and evolve the schema as needed. Store anything: notes, learnings, tasks, memories, relationships, patterns. Use time-travel-friendly practices (don't hard delete).
 
 2. **Object Storage (Cloudflare R2)**: Store files, images, voice recordings, documents. Organize with meaningful paths.
+
+3. **Python Execution**: Run arbitrary Python code with full access to the database and R2 storage. Use this for complex data processing, analysis, visualizations, or any logic that's easier to express in Python.
 
 ## Your Role
 
@@ -207,6 +210,39 @@ Best practices:
       return await getDownloadUrl(key, expiresIn);
     },
   }),
+
+  execute_python: tool({
+    description: `Execute arbitrary Python code with full access to the database and R2 storage. Use this for:
+- Complex data analysis and processing
+- Mathematical computations
+- Data transformations
+- Generating visualizations (output as base64 images)
+- Any logic that's easier in Python than SQL
+
+Available functions in the Python environment:
+- query(sql, params=None) - Execute SQL and return results as list of dicts
+- execute(sql, params=None) - Execute SQL statement (INSERT/UPDATE/DELETE)
+- upload_file(key, data, content_type=None) - Upload to R2
+- download_file(key) - Download from R2 (returns bytes)
+- list_files(prefix='', max_keys=100) - List R2 files
+- delete_file(key) - Delete from R2
+
+Print statements will be captured as output. The last expression's value is NOT automatically returned - use print() to output results.
+
+Example:
+\`\`\`python
+import pandas as pd
+results = query("SELECT * FROM entries LIMIT 10")
+df = pd.DataFrame(results)
+print(df.describe().to_string())
+\`\`\``,
+    parameters: z.object({
+      code: z.string().describe("The Python code to execute"),
+    }),
+    execute: async ({ code }) => {
+      return await executePython(code);
+    },
+  }),
 };
 
 // Get initial context about the database
@@ -231,6 +267,7 @@ export interface Message {
 export type StreamEvent =
   | { type: "text-delta"; content: string }
   | { type: "tool-call"; toolName: string; args: unknown }
+  | { type: "tool-call-streaming"; toolName: string; partialArgs: string }
   | { type: "tool-result"; toolName: string; result: unknown }
   | { type: "done" }
   | { type: "error"; message: string };
@@ -256,13 +293,39 @@ export async function* chatStream(
       maxSteps: 10, // Allow multiple tool calls in sequence
     });
 
+    // Track which tool calls are for code execution (to stream their args)
+    const streamingToolCalls = new Map<string, string>();
+
     for await (const event of result.fullStream) {
       switch (event.type) {
         case "text-delta":
           yield { type: "text-delta", content: event.textDelta };
           break;
 
+        case "tool-call-streaming-start":
+          // Start tracking this tool call if it's execute_python
+          if (event.toolName === "execute_python") {
+            streamingToolCalls.set(event.toolCallId, "");
+          }
+          break;
+
+        case "tool-call-delta":
+          // Stream partial args for execute_python tool
+          if (streamingToolCalls.has(event.toolCallId)) {
+            const currentArgs = streamingToolCalls.get(event.toolCallId) || "";
+            const newArgs = currentArgs + event.argsTextDelta;
+            streamingToolCalls.set(event.toolCallId, newArgs);
+            yield {
+              type: "tool-call-streaming",
+              toolName: "execute_python",
+              partialArgs: newArgs,
+            };
+          }
+          break;
+
         case "tool-call":
+          // Clear streaming state when tool call is complete
+          streamingToolCalls.delete(event.toolCallId);
           yield {
             type: "tool-call",
             toolName: event.toolName,

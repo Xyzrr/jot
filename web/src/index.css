@@ -433,6 +433,29 @@ body {
   display: none;
 }
 
+.tool-call-python {
+  border-left-color: var(--accent-secondary);
+}
+
+.tool-call-python .tool-call-header {
+  background: rgba(255, 200, 87, 0.1);
+}
+
+.tool-call-python .tool-call-header:hover {
+  background: rgba(255, 200, 87, 0.15);
+}
+
+.tool-call-python .tool-icon {
+  color: var(--accent-secondary);
+}
+
+.tool-status {
+  margin-left: auto;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 /* === Tool Results === */
 .tool-result {
   background: var(--bg-tertiary);
@@ -483,6 +506,74 @@ body {
 
 .tool-result-data.collapsed {
   display: none;
+}
+
+/* === Code Streaming === */
+.code-streaming {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-secondary);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  font-size: 0.875rem;
+}
+
+.code-streaming-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(255, 200, 87, 0.1);
+}
+
+.code-icon {
+  font-size: 1rem;
+}
+
+.code-label {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.streaming-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-secondary);
+  animation: pulse-glow 1s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { 
+    opacity: 1; 
+    box-shadow: 0 0 8px var(--accent-secondary);
+  }
+  50% { 
+    opacity: 0.5; 
+    box-shadow: 0 0 4px var(--accent-secondary);
+  }
+}
+
+.code-streaming-content {
+  margin: 0;
+  padding: var(--space-md);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+.code-streaming-content code {
+  background: none;
+  padding: 0;
 }
 
 /* === Message Actions === */
