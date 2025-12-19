@@ -5,7 +5,7 @@ HTTP API using Hono framework, optimized for Bun runtime.
 
 ## Files
 
-### `api.ts`
+### `routes.ts`
 API route definitions:
 - Health check endpoint
 - Chat endpoints (standard and streaming)

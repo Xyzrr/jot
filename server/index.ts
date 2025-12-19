@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { api } from "./server/api";
+import { api } from "./api/routes";
 import { config } from "./config";
 
 const app = new Hono();

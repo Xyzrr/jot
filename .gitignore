@@ -2,13 +2,11 @@
 node_modules/
 
 # Build
-dist/
-web/dist/
+**/dist/
 
 # Environment
 .env
-.env.local
-.env.*.local
+.env.*
 
 # IDE
 .idea/
@@ -19,8 +17,6 @@ web/dist/
 
 # Logs
 *.log
-logs/
 
 # Bun
 bun.lockb
-

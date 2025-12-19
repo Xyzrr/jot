@@ -1,118 +1,63 @@
-# Jot - AI-Assisted Development Guide
+# Jot
 
-## ⚠️ IMPORTANT: Keep Documentation Updated
+**Keep `claude.md` files updated when making changes.**
 
-**When making changes to this project, always update the relevant `claude.md` files.** Each major directory has its own `claude.md` with specific context.
+## Overview
 
-## Project Overview
+Personal AI assistant with full control over PostgreSQL (Neon) and object storage (Cloudflare R2). All responses are HTML—AI controls presentation.
 
-Jot is a personal AI assistant for recording and retrieving life knowledge. The AI has full control over:
-
-- **PostgreSQL database** (Neon) - schema design, migrations, queries
-- **Object storage** (Cloudflare R2) - files, voice recordings, images
-- **Dynamic UI** - responses are HTML, AI controls presentation
-
-## Tech Stack
-
-- **Runtime**: Bun
-- **Backend**: Hono + Vercel AI SDK (Anthropic Claude)
-- **Frontend**: React + Vite + TypeScript
-- **Database**: Neon PostgreSQL
-- **Storage**: Cloudflare R2
-
-## Project Structure
+## Structure
 
 ```
 jot/
-├── src/                    # Backend (Bun + Hono)
-│   ├── index.ts            # API server entry
-│   ├── config.ts           # Environment config
-│   ├── ai/
-│   │   └── assistant.ts    # AI SDK, tools, streaming
-│   ├── db/
-│   │   └── client.ts       # PostgreSQL client
-│   ├── server/
-│   │   └── api.ts          # API routes
-│   └── storage/
-│       └── r2.ts           # R2 client
-├── web/                    # Frontend (React + Vite)
-│   ├── src/
-│   │   ├── App.tsx
-│   │   ├── hooks/useChat.ts
-│   │   └── components/
-│   └── vite.config.ts
-├── package.json
-└── claude.md
+├── server/           # @jot/server
+│   ├── package.json
+│   ├── .env          # credentials (from env.example)
+│   ├── index.ts      # entry
+│   ├── config.ts     # env loader
+│   ├── ai/           # assistant, tools
+│   ├── api/          # routes
+│   ├── db/           # postgres client
+│   └── storage/      # r2 client
+├── web/              # @jot/web
+│   ├── package.json
+│   ├── vite.config.ts
+│   └── src/
+└── package.json      # workspace root
 ```
 
-## Development
+## Commands
 
 ```bash
-# Install all dependencies
-bun install
-cd web && bun install && cd ..
-
-# Run both servers (API :3000, Vite :5173)
-bun run dev
-
-# Or separately
-bun run dev:api
-bun run dev:web
+bun install                        # install all
+bun run dev                        # run both
+bun --filter @jot/server dev       # server only
+bun --filter @jot/web dev          # web only
+bun run build                      # build all
 ```
 
-Open http://localhost:5173
+## Key Files
 
-## Key Concepts
+- `server/ai/assistant.ts` - system prompt, tools, streaming
+- `server/api/routes.ts` - HTTP endpoints
+- `web/src/hooks/useChat.ts` - chat state, SSE handling
+- `web/src/components/Message.tsx` - message rendering
 
-### Streaming
-
-SSE stream from `/api/chat` with events:
-
-- `text-delta` - Streamed text
-- `tool-call` - Tool invocation
-- `tool-result` - Tool response
-- `done` / `error`
-
-### Response Format
-
-ALL assistant responses are HTML. AI decides presentation:
-
-- Simple: `<p>Got it.</p>`
-- Rich: Tables, charts, interactive elements with `<script>`
-
-### Tools
-
-Using Vercel AI SDK `tool()`:
-
-1. `execute_sql` - Full database access
-2. `get_database_schema` - Introspect tables
-3. `upload_file` / `get_file` / `delete_file` / `list_files`
-4. `get_upload_url` / `get_download_url`
-
-## Adding Features
-
-### New Tool
-
-In `src/ai/assistant.ts`:
+## Adding a Tool
 
 ```typescript
-new_tool: tool({
+// server/ai/assistant.ts
+my_tool: tool({
   description: "...",
   parameters: z.object({ ... }),
   execute: async (args) => { ... },
 }),
 ```
 
-### New Component
+## SSE Events
 
-In `web/src/components/`:
-
-```tsx
-export function MyComponent({ prop }: Props) {
-  return <div>...</div>;
-}
-```
-
-### Changing AI Behavior
-
-System prompt at top of `src/ai/assistant.ts`
+`POST /api/chat` streams:
+- `text-delta` - content chunk
+- `tool-call` - tool invocation
+- `tool-result` - tool response  
+- `done` / `error`
