@@ -5,7 +5,7 @@ interface Props {
   partialArgs: string;
 }
 
-export function CodeStreaming({ toolName, partialArgs }: Props) {
+export function CodeStreaming({ toolName: _toolName, partialArgs }: Props) {
   const codeRef = useRef<HTMLPreElement>(null);
 
   // Auto-scroll to bottom as code streams in
@@ -62,4 +62,3 @@ export function CodeStreaming({ toolName, partialArgs }: Props) {
     </div>
   );
 }
-
