@@ -42,10 +42,9 @@ export function Chat() {
         <div className="messages">
           {messages.length === 0 && (
             <div className="welcome">
-              <h1>What's on your mind?</h1>
+              <h1>何を考えていますか</h1>
               <p>
-                I'm your second brain. Tell me what you've learned, what you're
-                thinking about, or ask me anything.
+                a space for thinking
               </p>
             </div>
           )}
@@ -70,7 +69,7 @@ export function Chat() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             onInput={handleInput}
-            placeholder="Type a message..."
+            placeholder="..."
             rows={1}
             autoFocus
           />

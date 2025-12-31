@@ -18,20 +18,15 @@ function App() {
 
   return (
     <div className="app">
-      <div className="ambient-bg">
-        <div className="gradient-orb orb-1" />
-        <div className="gradient-orb orb-2" />
-        <div className="gradient-orb orb-3" />
-      </div>
+      <div className="ambient-bg" />
 
       <header className="header">
         <div className="logo">
-          <span className="logo-icon">◉</span>
+          <span className="logo-icon">●</span>
           <span className="logo-text">jot</span>
         </div>
         <div className="status">
           <span className={`status-dot ${status === "ready" ? "connected" : ""}`} />
-          <span className="status-text">{status}</span>
         </div>
       </header>
 

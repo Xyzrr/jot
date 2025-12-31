@@ -2,11 +2,12 @@
 FROM oven/bun:1 AS base
 WORKDIR /app
 
-# Install Python and pip
+# Install Python, pip, and libpq-dev (needed to build psycopg2 for Python 3.13)
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     python3-venv \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Create virtual environment for Python
