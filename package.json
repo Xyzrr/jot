@@ -8,6 +8,8 @@
   "scripts": {
     "dev": "concurrently \"bun --filter @jot/server dev\" \"bun --filter @jot/web dev\"",
     "build": "bun --filter @jot/server build && bun --filter @jot/web build",
+    "typecheck": "bun --filter @jot/web typecheck",
+    "lint": "bun --filter @jot/web lint",
     "start": "bun --filter @jot/server start"
   },
   "devDependencies": {
