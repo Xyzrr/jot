@@ -257,14 +257,14 @@ body {
   gap: var(--space-xs);
 }
 
-.message.assistant.streaming::after {
-  content: '';
-  display: inline-block;
+/* Streaming dot indicator */
+.streaming-dot {
   width: 6px;
   height: 6px;
   background: var(--accent-primary);
   border-radius: 50%;
   animation: blink 1s ease-in-out infinite;
+  margin-top: var(--space-xs);
 }
 
 /* === Assistant Content === */
@@ -276,11 +276,6 @@ body {
 
 .assistant-content {
   line-height: 1.6;
-}
-
-.assistant-content:empty::before {
-  content: '...';
-  color: var(--text-muted);
 }
 
 .assistant-content p {

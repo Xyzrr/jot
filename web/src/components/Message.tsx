@@ -52,8 +52,9 @@ function AssistantMessage({ message, isStreaming }: Props) {
         {message.blocks.map((block, i) => (
           <BlockRenderer key={i} block={block} />
         ))}
-        {message.blocks.length === 0 && <div className="assistant-content">...</div>}
       </div>
+
+      {isStreaming && <div className="streaming-dot" />}
 
       {showCode && (
         <div className="assistant-code active">
