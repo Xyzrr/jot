@@ -42,10 +42,7 @@ export function Chat() {
         <div className="messages">
           {messages.length === 0 && (
             <div className="welcome">
-              <h1>何を考えていますか</h1>
-              <p>
-                a space for thinking
-              </p>
+              <h1>tell me anything</h1>
             </div>
           )}
 
