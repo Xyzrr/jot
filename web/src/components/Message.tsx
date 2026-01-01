@@ -97,7 +97,7 @@ function BlockRenderer({ block }: { block: Block }) {
     case "tool-call":
       return <ToolCall toolName={block.toolName} args={block.args} />;
     case "tool-call-streaming":
-      return <CodeStreaming toolName={block.toolName} partialArgs={block.partialArgs} />;
+      return <CodeStreaming partialArgs={block.partialArgs} />;
     case "tool-result":
       return <ToolResult toolName={block.toolName} result={block.result} />;
   }

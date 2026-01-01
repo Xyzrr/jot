@@ -128,7 +128,7 @@ export function useChat() {
                 const event = JSON.parse(data);
 
                 switch (event.type) {
-                  case "text-delta":
+                  case "text-delta": {
                     fullText += event.content;
                     currentBlockText += event.content;
                     // Update or add text block
@@ -146,8 +146,9 @@ export function useChat() {
                     }
                     updateAssistant(blocks, fullText);
                     break;
+                  }
 
-                  case "tool-call-streaming":
+                  case "tool-call-streaming": {
                     // Update or add streaming block for code being generated
                     currentBlockText = ""; // Reset for next text block
                     const lastStreamingBlock = blocks[blocks.length - 1];
@@ -177,8 +178,9 @@ export function useChat() {
                     }
                     updateAssistant(blocks, fullText);
                     break;
+                  }
 
-                  case "tool-call":
+                  case "tool-call": {
                     currentBlockText = ""; // Reset for next text block
                     // Replace any streaming block with the final tool-call
                     const prevBlock = blocks[blocks.length - 1];
@@ -206,6 +208,7 @@ export function useChat() {
                     }
                     updateAssistant(blocks, fullText);
                     break;
+                  }
 
                   case "tool-result":
                     blocks = [
@@ -219,12 +222,13 @@ export function useChat() {
                     updateAssistant(blocks, fullText);
                     break;
 
-                  case "error":
+                  case "error": {
                     const errorText = `⚠️ **Error:** ${event.message}`;
                     fullText += errorText;
                     blocks = [...blocks, { type: "text", content: errorText }];
                     updateAssistant(blocks, fullText);
                     break;
+                  }
                 }
               } catch (e) {
                 console.error("Failed to parse SSE:", data, e);

@@ -1,11 +1,10 @@
 import { useRef, useEffect } from "react";
 
 interface Props {
-  toolName: string;
   partialArgs: string;
 }
 
-export function CodeStreaming({ toolName: _toolName, partialArgs }: Props) {
+export function CodeStreaming({ partialArgs }: Props) {
   const codeRef = useRef<HTMLPreElement>(null);
 
   // Auto-scroll to bottom as code streams in
