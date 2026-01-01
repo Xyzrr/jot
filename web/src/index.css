@@ -56,12 +56,14 @@ body {
   color: var(--text-primary);
   line-height: 1.7;
   min-height: 100vh;
+  min-height: 100dvh;
   overflow: hidden;
   letter-spacing: -0.01em;
 }
 
 #root {
   height: 100vh;
+  height: 100dvh;
 }
 
 /* === App Layout === */
@@ -69,9 +71,13 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: 100dvh;
   max-width: 720px;
   margin: 0 auto;
   position: relative;
+  padding-top: env(safe-area-inset-top);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 .chat {
@@ -578,6 +584,7 @@ body {
 /* === Input Area === */
 .input-area {
   padding: var(--space-lg) var(--space-xl) var(--space-xl);
+  padding-bottom: calc(var(--space-xl) + env(safe-area-inset-bottom));
   position: relative;
   z-index: 10;
 }
