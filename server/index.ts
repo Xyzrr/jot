@@ -21,4 +21,5 @@ console.log(`
 export default {
   port: config.port,
   fetch: app.fetch,
+  idleTimeout: 120, // 2 minutes for streaming responses
 };
