@@ -33,7 +33,7 @@ services:
   - type: web
     name: jot-web
     runtime: static
-    buildCommand: cd web && npm install && npm run build
+    buildCommand: rm -rf node_modules package-lock.json && npm install && cd web && npm run build
     staticPublishPath: ./web/dist
     pullRequestPreviewsEnabled: true
     headers:
