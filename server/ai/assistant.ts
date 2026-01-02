@@ -92,8 +92,13 @@ document.querySelector('.btn').onclick = () => { /* ... */ };
 </script>
 
 Guidelines:
-- Dark theme context: bg #0a0a0f, text #f0f0f5
-- CSS variables available: --accent-primary (#ff6b35), --accent-secondary (#ffc857), --bg-secondary, --bg-tertiary
+- Dark theme context: bg #0d0d0d, text #e8e8e8
+- CSS variables available:
+  - Backgrounds: --color-bg-primary (#0d0d0d), --color-bg-secondary (#141414), --color-bg-tertiary (#1a1a1a), --color-bg-elevated (#202020)
+  - Text: --color-text-primary (#e8e8e8), --color-text-secondary (#888888), --color-text-muted (#555555)
+  - Accents: --color-accent-primary (#c4735c), --color-accent-secondary (#8b9a7d), --color-accent-tertiary (#7d8ba0)
+  - Status: --color-success (#8b9a7d), --color-warning (#c4a35c), --color-error (#b85c5c)
+  - Borders: --color-border (rgba(255,255,255,0.04)), --color-border-subtle, --color-border-focus
 - Keep it minimal for simple responses - don't over-design
 - Go rich when displaying data, queries, visualizations
 - Use inline styles or <style> tags (scoped to your classes)
