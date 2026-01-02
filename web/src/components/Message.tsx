@@ -54,7 +54,11 @@ function AssistantMessage({ message, isStreaming }: Props) {
     <div className="flex flex-col gap-2 animate-fade-in group">
       <div className="flex flex-col gap-4" ref={contentRef}>
         {message.blocks.map((block, i) => (
-          <BlockRenderer key={i} block={block} />
+          <BlockRenderer
+            key={i}
+            block={block}
+            nextBlock={message.blocks[i + 1]}
+          />
         ))}
       </div>
 
@@ -73,24 +77,42 @@ function AssistantMessage({ message, isStreaming }: Props) {
       <div className="flex gap-0.5 mt-2 opacity-0 transition-opacity group-hover:opacity-100">
         <button
           className={`flex items-center justify-center w-6 h-6 p-0 bg-transparent border-none cursor-pointer rounded transition-colors ${
-            showCode ? "text-text-primary" : "text-text-muted hover:text-text-secondary"
+            showCode
+              ? "text-text-primary"
+              : "text-text-muted hover:text-text-secondary"
           }`}
           onClick={() => setShowCode(!showCode)}
           title="View code"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
             <polyline points="16 18 22 12 16 6" />
             <polyline points="8 6 2 12 8 18" />
           </svg>
         </button>
         <button
           className={`flex items-center justify-center w-6 h-6 p-0 bg-transparent border-none cursor-pointer rounded transition-colors ${
-            copied ? "text-success" : "text-text-muted hover:text-text-secondary"
+            copied
+              ? "text-success"
+              : "text-text-muted hover:text-text-secondary"
           }`}
           onClick={handleCopy}
           title="Copy"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
             <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
             <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
           </svg>
@@ -100,12 +122,29 @@ function AssistantMessage({ message, isStreaming }: Props) {
   );
 }
 
-function BlockRenderer({ block }: { block: Block }) {
+function BlockRenderer({
+  block,
+  nextBlock,
+}: {
+  block: Block;
+  nextBlock?: Block;
+}) {
   switch (block.type) {
     case "text":
       return <TextBlock content={block.content} />;
-    case "tool-call":
-      return <ToolCall toolName={block.toolName} args={block.args} />;
+    case "tool-call": {
+      // Check if the next block is the result for this tool call
+      const hasResult =
+        nextBlock?.type === "tool-result" &&
+        nextBlock.toolName === block.toolName;
+      return (
+        <ToolCall
+          toolName={block.toolName}
+          args={block.args}
+          hasResult={hasResult}
+        />
+      );
+    }
     case "tool-call-streaming":
       return <CodeStreaming partialArgs={block.partialArgs} />;
     case "tool-result":

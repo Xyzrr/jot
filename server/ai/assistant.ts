@@ -323,6 +323,7 @@ export async function* chatStream(
       messages: coreMessages,
       tools,
       maxSteps: 10, // Allow multiple tool calls in sequence
+      experimental_toolCallStreaming: true, // Enable streaming of tool call arguments
     });
 
     // Track which tool calls are for code execution (to stream their args)
@@ -338,6 +339,12 @@ export async function* chatStream(
           // Start tracking this tool call if it's execute_python
           if (event.toolName === "execute_python") {
             streamingToolCalls.set(event.toolCallId, "");
+            // Emit immediately so client shows streaming UI right away
+            yield {
+              type: "tool-call-streaming",
+              toolName: "execute_python",
+              partialArgs: "",
+            };
           }
           break;
 
