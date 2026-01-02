@@ -8,6 +8,7 @@ export const sql = postgres(config.databaseUrl, {
   max: 10,
   idle_timeout: 20,
   connect_timeout: 10,
+  onnotice: () => {}, // Suppress "already exists, skipping" notices
 });
 
 // Helper to run arbitrary SQL (for AI use)
