@@ -15,27 +15,20 @@ export function CodeStreaming({ partialArgs }: Props) {
   }, [partialArgs]);
 
   // Try to extract the code from the partial JSON args
-  // The args will be building up like: {"code": "print('hello...
   const extractCode = (partial: string): string => {
-    // Try to find the code field value
     const codeMatch = partial.match(/"code"\s*:\s*"([\s\S]*)/);
     if (codeMatch) {
       let code = codeMatch[1];
-      // If it ends with a quote and closing brace, strip them
       if (code.endsWith('"}')) {
         code = code.slice(0, -2);
       } else if (code.endsWith('"')) {
         code = code.slice(0, -1);
       }
-      // Unescape JSON string escapes
       try {
-        // Add quotes back to make it a valid JSON string for parsing
         const fullJson = '"' + code + '"';
-        // Handle incomplete escape sequences by padding if needed
         const parsed = JSON.parse(fullJson);
         return parsed;
       } catch {
-        // If parsing fails, do basic unescaping
         return code
           .replace(/\\n/g, "\n")
           .replace(/\\t/g, "\t")
@@ -49,14 +42,19 @@ export function CodeStreaming({ partialArgs }: Props) {
   const code = extractCode(partialArgs);
 
   return (
-    <div className="code-streaming">
-      <div className="code-streaming-header">
-        <span className="code-icon">🐍</span>
-        <span className="code-label">Generating Python code...</span>
-        <span className="streaming-indicator"></span>
+    <div className="bg-bg-secondary border border-border rounded-lg overflow-hidden text-[0.85rem]">
+      <div className="flex items-center gap-2 py-2 px-4">
+        <span className="text-[0.9rem] text-text-muted">🐍</span>
+        <span className="font-mono text-xs text-text-muted flex-1">
+          Generating Python code...
+        </span>
+        <span className="w-1 h-1 rounded-full bg-text-muted animate-breathe" />
       </div>
-      <pre className="code-streaming-content" ref={codeRef}>
-        <code>{code}</code>
+      <pre
+        className="m-0 p-4 font-mono text-sm text-text-secondary bg-bg-primary border-t border-border overflow-x-auto max-h-80 overflow-y-auto whitespace-pre-wrap break-words leading-relaxed select-text"
+        ref={codeRef}
+      >
+        <code className="bg-transparent p-0">{code}</code>
       </pre>
     </div>
   );

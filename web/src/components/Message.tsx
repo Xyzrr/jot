@@ -11,7 +11,11 @@ interface Props {
 
 export function Message({ message, isStreaming }: Props) {
   if (message.role === "user") {
-    return <div className="message user">{message.content}</div>;
+    return (
+      <div className="self-end max-w-[85%] py-2 px-4 bg-bg-tertiary text-text-primary rounded-lg ml-auto text-[0.95rem] select-text animate-fade-in">
+        {message.content}
+      </div>
+    );
   }
 
   return <AssistantMessage message={message} isStreaming={isStreaming} />;
@@ -47,26 +51,30 @@ function AssistantMessage({ message, isStreaming }: Props) {
   }, [isStreaming, message.content]);
 
   return (
-    <div className={`message assistant ${isStreaming ? "streaming" : ""}`}>
-      <div className="assistant-content-area" ref={contentRef}>
+    <div className="flex flex-col gap-2 animate-fade-in group">
+      <div className="flex flex-col gap-4" ref={contentRef}>
         {message.blocks.map((block, i) => (
           <BlockRenderer key={i} block={block} />
         ))}
       </div>
 
-      {isStreaming && <div className="streaming-dot" />}
+      {isStreaming && (
+        <div className="w-1 h-1 bg-text-muted rounded-full opacity-0 animate-breathe mt-2" />
+      )}
 
       {showCode && (
-        <div className="assistant-code active">
-          <pre>
-            <code>{message.content}</code>
+        <div className="mt-2">
+          <pre className="m-0 p-4 bg-bg-secondary border border-border rounded-lg font-mono text-xs text-text-muted overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap break-words">
+            <code className="bg-transparent p-0">{message.content}</code>
           </pre>
         </div>
       )}
 
-      <div className="message-actions">
+      <div className="flex gap-0.5 mt-2 opacity-0 transition-opacity group-hover:opacity-100">
         <button
-          className={`action-btn ${showCode ? "active" : ""}`}
+          className={`flex items-center justify-center w-6 h-6 p-0 bg-transparent border-none cursor-pointer rounded transition-colors ${
+            showCode ? "text-text-primary" : "text-text-muted hover:text-text-secondary"
+          }`}
           onClick={() => setShowCode(!showCode)}
           title="View code"
         >
@@ -76,7 +84,9 @@ function AssistantMessage({ message, isStreaming }: Props) {
           </svg>
         </button>
         <button
-          className={`action-btn ${copied ? "copied" : ""}`}
+          className={`flex items-center justify-center w-6 h-6 p-0 bg-transparent border-none cursor-pointer rounded transition-colors ${
+            copied ? "text-success" : "text-text-muted hover:text-text-secondary"
+          }`}
           onClick={handleCopy}
           title="Copy"
         >
@@ -114,4 +124,3 @@ function TextBlock({ content }: { content: string }) {
     />
   );
 }
-
