@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import { chatStream, type Message } from "../ai/assistant";
-import { checkConnection, getSchema, executeSQL } from "../db/client";
+import { checkConnection, getSchema, executeSQL, saveMessage } from "../db/client";
 import { listFiles } from "../storage/r2";
 
 const api = new Hono();
@@ -29,10 +29,28 @@ api.post("/chat", async (c) => {
     return c.json({ error: "messages array required" }, 400);
   }
 
+  // Save the user's message (the last one in the array)
+  const userMessage = body.messages[body.messages.length - 1];
+  if (userMessage?.role === "user") {
+    saveMessage("user", userMessage.content).catch(console.error);
+  }
+
   return streamSSE(c, async (stream) => {
+    let assistantResponse = "";
+    
     try {
       for await (const event of chatStream(body.messages)) {
+        // Accumulate assistant text
+        if (event.type === "text-delta") {
+          assistantResponse += event.content;
+        }
+        
         await stream.writeSSE({ data: JSON.stringify(event) });
+        
+        // Save assistant response when done
+        if (event.type === "done" && assistantResponse) {
+          saveMessage("assistant", assistantResponse).catch(console.error);
+        }
       }
     } catch (error) {
       const err = error as Error;

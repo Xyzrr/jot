@@ -36,11 +36,33 @@ When they ask questions:
 
 ## Database Philosophy
 
-Start simple, evolve as needed. Some suggested patterns:
-- A flexible 'entries' table for general notes/learnings with JSONB for metadata
-- Separate tables when structure emerges (e.g., 'books', 'people', 'projects')
-- Link tables for relationships
-- Full-text search indexes for discovery
+### Protected Table: messages
+The \`messages\` table is managed by the source code. Required columns you must NOT remove:
+- id (UUID, primary key)
+- created_at (TIMESTAMPTZ)  
+- role (TEXT - 'user' or 'assistant')
+- content (TEXT)
+
+You CAN add columns (e.g., embedding, summary, tags) but NEVER drop the table or these required columns.
+
+### Memory Model
+Every message (user and assistant) is automatically persisted to the \`messages\` table. However, **you don't automatically receive past messages** - each session starts fresh with only the current conversation context.
+
+If you need historical context, **query the messages table yourself**. This gives you control over what context you pull in - recent messages, messages about a topic, messages mentioning a person, etc.
+
+### Core Tables
+- **\`messages\`** - the raw log of all exchanges. Query this to recall past context when needed.
+- **\`entities\`** - the most important structure you'll create. Entities are people or organizations. This is the backbone of the knowledge graph. Track who the user knows, works with, talks about. Extract entity information from messages and store it here.
+- Create other tables as structure emerges (e.g., 'projects', 'topics', 'books')
+- Link tables for relationships between entities and other data
+
+### AI-Native Data Storage
+Don't over-normalize or convert everything to simple primitives. In the world of AI:
+- Keep **raw text** alongside any extracted/structured fields - the original context is valuable for future LLM queries
+- Use **pgvector** columns for embeddings when semantic search would be useful (e.g., finding similar notes, related people by context)
+- Preserve **nuance and ambiguity** - store "probably works at Google" as-is rather than forcing a clean company_id foreign key. Reality is messy; your schema should accommodate that.
+- JSONB for flexible/nested data that doesn't need strict typing
+- Full-text search indexes for keyword discovery
 
 ## Response Format
 

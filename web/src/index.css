@@ -48,6 +48,8 @@ html {
   font-size: 15px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 body {
@@ -59,11 +61,19 @@ body {
   min-height: 100dvh;
   overflow: hidden;
   letter-spacing: -0.01em;
+  overscroll-behavior: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: pan-x pan-y;
+  position: fixed;
+  width: 100%;
 }
 
 #root {
   height: 100vh;
   height: 100dvh;
+  overflow: hidden;
 }
 
 /* === App Layout === */
@@ -170,6 +180,8 @@ body {
   padding: var(--space-xl);
   position: relative;
   z-index: 1;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .messages {
@@ -218,6 +230,8 @@ body {
   border-radius: var(--radius-md);
   margin-left: auto;
   font-size: 0.95rem;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .message.assistant {
@@ -252,6 +266,8 @@ body {
 .assistant-content {
   line-height: 1.8;
   color: var(--text-primary);
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .assistant-content p {
@@ -413,6 +429,8 @@ body {
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-word;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .tool-call-args.collapsed {
@@ -478,6 +496,8 @@ body {
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-word;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .tool-result-data.collapsed {
@@ -534,6 +554,8 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.6;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .code-streaming-content code {
@@ -610,12 +632,14 @@ body {
   border: none;
   color: var(--text-primary);
   font-family: var(--font-sans);
-  font-size: 0.95rem;
+  font-size: 16px; /* Prevents iOS zoom on focus */
   padding: var(--space-sm) var(--space-md);
   resize: none;
   max-height: 150px;
   line-height: 1.6;
   letter-spacing: -0.01em;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .input-container textarea::placeholder {
