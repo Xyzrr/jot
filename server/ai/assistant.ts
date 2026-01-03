@@ -15,7 +15,7 @@ import {
   getUploadUrl,
   getDownloadUrl,
 } from "../storage/r2";
-import { executePython } from "../python/executor";
+import { executePython, endPythonSession } from "../python/executor";
 
 // System prompt
 const SYSTEM_PROMPT = `You are Jot, a highly capable AI assistant that serves as a personal knowledge and life management system. You have direct access to:
@@ -291,6 +291,8 @@ Best practices:
 - Generating visualizations (output as base64 images)
 - Any logic that's easier in Python than SQL
 
+**Variables persist within a turn**: You can define variables in one Python execution and use them in subsequent executions within the same turn. This is like a Jupyter notebook - state accumulates.
+
 Available functions in the Python environment:
 - query(sql, params=None) - Execute SQL and return results as list of dicts
 - execute(sql, params=None) - Execute SQL statement (INSERT/UPDATE/DELETE)
@@ -472,5 +474,10 @@ export async function* chatStream(
   } catch (error) {
     const err = error as Error;
     yield { type: "error", message: err.message };
+  } finally {
+    // Clean up the Python session at the end of each turn
+    // This ensures a fresh session for the next turn while allowing
+    // variables to persist across multiple Python executions within this turn
+    endPythonSession();
   }
 }

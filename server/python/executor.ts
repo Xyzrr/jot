@@ -1,14 +1,16 @@
-import { spawn } from "child_process";
+import { spawn, ChildProcess } from "child_process";
 import { config } from "../config";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 
-// Python script template that provides access to DB and R2
-const PYTHON_PREAMBLE = `
+// Python REPL server script - runs in a loop, executes code, returns results
+const PYTHON_REPL_SCRIPT = `
 import os
 import json
 import sys
+import traceback
+from io import StringIO
 
 # Database connection (using psycopg2)
 try:
@@ -124,7 +126,6 @@ try:
     def embed_many(texts, model="text-embedding-3-small"):
         """Generate embeddings for multiple texts. Returns list of embeddings in same order."""
         response = get_openai().embeddings.create(input=texts, model=model)
-        # Sort by index to maintain order
         sorted_data = sorted(response.data, key=lambda x: x.index)
         return [item.embedding for item in sorted_data]
 
@@ -134,14 +135,67 @@ except ImportError:
     def embed_many(texts, model="text-embedding-3-small"):
         raise ImportError("openai not installed. Run: pip install openai")
 
-# Helper to format output for the agent
-def _format_result(result):
-    """Format Python objects for JSON output."""
-    if hasattr(result, '__iter__') and not isinstance(result, (str, bytes, dict)):
-        result = list(result)
-    return json.dumps(result, default=str, indent=2)
+# Global namespace for persistent variables
+_user_namespace = {}
 
+# Marker for end of response
+END_MARKER = "<<<END_OF_RESPONSE>>>"
+
+def run_code(code):
+    """Execute code in persistent namespace, capturing stdout/stderr."""
+    old_stdout = sys.stdout
+    old_stderr = sys.stderr
+    sys.stdout = captured_stdout = StringIO()
+    sys.stderr = captured_stderr = StringIO()
+    
+    success = True
+    error = None
+    
+    try:
+        # Execute in persistent namespace
+        exec(code, _user_namespace)
+    except Exception as e:
+        success = False
+        error = traceback.format_exc()
+    finally:
+        sys.stdout = old_stdout
+        sys.stderr = old_stderr
+    
+    stdout = captured_stdout.getvalue()
+    stderr = captured_stderr.getvalue()
+    
+    return {
+        "success": success,
+        "output": stdout if stdout else None,
+        "stderr": stderr if stderr else None,
+        "error": error
+    }
+
+# Main REPL loop - read JSON commands from stdin, write JSON results to stdout
+while True:
+    try:
+        line = sys.stdin.readline()
+        if not line:
+            break
+        
+        request = json.loads(line.strip())
+        code = request.get("code", "")
+        
+        result = run_code(code)
+        
+        # Write result as JSON followed by end marker
+        print(json.dumps(result), flush=True)
+        print(END_MARKER, flush=True)
+        
+    except json.JSONDecodeError as e:
+        print(json.dumps({"success": False, "error": f"Invalid JSON: {e}"}), flush=True)
+        print(END_MARKER, flush=True)
+    except Exception as e:
+        print(json.dumps({"success": False, "error": str(e)}), flush=True)
+        print(END_MARKER, flush=True)
 `;
+
+const END_MARKER = "<<<END_OF_RESPONSE>>>";
 
 export interface PythonResult {
   success: boolean;
@@ -150,97 +204,218 @@ export interface PythonResult {
   executionTime?: number;
 }
 
-export async function executePython(code: string): Promise<PythonResult> {
-  const startTime = Date.now();
+/**
+ * Manages a persistent Python session that maintains state across executions.
+ * Variables defined in one execution are available in subsequent executions.
+ */
+export class PythonSession {
+  private process: ChildProcess | null = null;
+  private tempFile: string | null = null;
+  private buffer: string = "";
+  private responsePromise: {
+    resolve: (result: PythonResult) => void;
+    startTime: number;
+  } | null = null;
 
-  // Create a temporary file with the code
-  const tempDir = os.tmpdir();
-  const tempFile = path.join(tempDir, `jot_python_${Date.now()}.py`);
+  constructor() {}
 
-  // Wrap user code to capture the result of the last expression
-  const wrappedCode = `
-${PYTHON_PREAMBLE}
-
-# User code
-_result = None
-try:
-${code
-  .split("\n")
-  .map((line) => "    " + line)
-  .join("\n")}
-except Exception as e:
-    print(f"Error: {e}", file=sys.stderr)
-    sys.exit(1)
-`;
-
-  try {
-    await fs.promises.writeFile(tempFile, wrappedCode);
-
-    return new Promise((resolve) => {
-      const env = {
-        ...process.env,
-        DATABASE_URL: config.databaseUrl,
-        R2_ACCOUNT_ID: config.r2.accountId,
-        R2_ACCESS_KEY_ID: config.r2.accessKeyId,
-        R2_SECRET_ACCESS_KEY: config.r2.secretAccessKey,
-        R2_BUCKET_NAME: config.r2.bucketName,
-        OPENAI_API_KEY: process.env.OPENAI_API_KEY || "",
-        PYTHONUNBUFFERED: "1",
-      };
-
-      const pythonProcess = spawn("python3", [tempFile], {
-        env,
-        timeout: 30000, // 30 second timeout
-      });
-
-      let stdout = "";
-      let stderr = "";
-
-      pythonProcess.stdout.on("data", (data) => {
-        stdout += data.toString();
-      });
-
-      pythonProcess.stderr.on("data", (data) => {
-        stderr += data.toString();
-      });
-
-      pythonProcess.on("close", (exitCode) => {
-        // Clean up temp file
-        fs.promises.unlink(tempFile).catch(() => {});
-
-        const executionTime = Date.now() - startTime;
-
-        if (exitCode === 0) {
-          resolve({
-            success: true,
-            output: stdout.trim() || "(no output)",
-            executionTime,
-          });
-        } else {
-          resolve({
-            success: false,
-            error: stderr.trim() || `Process exited with code ${exitCode}`,
-            output: stdout.trim() || undefined,
-            executionTime,
-          });
-        }
-      });
-
-      pythonProcess.on("error", (err) => {
-        fs.promises.unlink(tempFile).catch(() => {});
-        resolve({
-          success: false,
-          error: `Failed to execute Python: ${err.message}`,
-          executionTime: Date.now() - startTime,
-        });
-      });
-    });
-  } catch (err) {
-    const error = err as Error;
+  private getEnv() {
     return {
-      success: false,
-      error: `Failed to create temp file: ${error.message}`,
-      executionTime: Date.now() - startTime,
+      ...process.env,
+      DATABASE_URL: config.databaseUrl,
+      R2_ACCOUNT_ID: config.r2.accountId,
+      R2_ACCESS_KEY_ID: config.r2.accessKeyId,
+      R2_SECRET_ACCESS_KEY: config.r2.secretAccessKey,
+      R2_BUCKET_NAME: config.r2.bucketName,
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY || "",
+      PYTHONUNBUFFERED: "1",
     };
   }
+
+  private async ensureProcess(): Promise<void> {
+    if (this.process && !this.process.killed) {
+      return;
+    }
+
+    // Write the REPL script to a temp file
+    const tempDir = os.tmpdir();
+    this.tempFile = path.join(tempDir, `jot_python_repl_${Date.now()}.py`);
+    await fs.promises.writeFile(this.tempFile, PYTHON_REPL_SCRIPT);
+
+    this.process = spawn("python3", ["-u", this.tempFile], {
+      env: this.getEnv(),
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    this.buffer = "";
+
+    this.process.stdout?.on("data", (data) => {
+      this.buffer += data.toString();
+      this.checkForResponse();
+    });
+
+    this.process.stderr?.on("data", (data) => {
+      // Python warnings and such go to stderr
+      console.error("[Python stderr]:", data.toString());
+    });
+
+    this.process.on("close", (code) => {
+      if (this.responsePromise) {
+        this.responsePromise.resolve({
+          success: false,
+          error: `Python process exited unexpectedly with code ${code}`,
+          executionTime: Date.now() - this.responsePromise.startTime,
+        });
+        this.responsePromise = null;
+      }
+      this.process = null;
+      // Clean up temp file
+      if (this.tempFile) {
+        fs.promises.unlink(this.tempFile).catch(() => {});
+        this.tempFile = null;
+      }
+    });
+
+    this.process.on("error", (err) => {
+      if (this.responsePromise) {
+        this.responsePromise.resolve({
+          success: false,
+          error: `Python process error: ${err.message}`,
+          executionTime: Date.now() - this.responsePromise.startTime,
+        });
+        this.responsePromise = null;
+      }
+    });
+  }
+
+  private checkForResponse(): void {
+    const markerIndex = this.buffer.indexOf(END_MARKER);
+    if (markerIndex === -1) return;
+
+    const responseText = this.buffer.substring(0, markerIndex).trim();
+    this.buffer = this.buffer.substring(markerIndex + END_MARKER.length).trim();
+
+    if (this.responsePromise) {
+      const executionTime = Date.now() - this.responsePromise.startTime;
+      try {
+        const result = JSON.parse(responseText);
+
+        // Format the output
+        let output = result.output || "";
+        if (result.stderr) {
+          output += (output ? "\n" : "") + result.stderr;
+        }
+
+        this.responsePromise.resolve({
+          success: result.success,
+          output: output.trim() || "(no output)",
+          error: result.error,
+          executionTime,
+        });
+      } catch {
+        this.responsePromise.resolve({
+          success: false,
+          error: `Failed to parse Python response: ${responseText}`,
+          executionTime,
+        });
+      }
+      this.responsePromise = null;
+    }
+  }
+
+  async execute(code: string): Promise<PythonResult> {
+    const startTime = Date.now();
+
+    try {
+      await this.ensureProcess();
+
+      if (!this.process?.stdin) {
+        return {
+          success: false,
+          error: "Failed to get Python process stdin",
+          executionTime: Date.now() - startTime,
+        };
+      }
+
+      return new Promise((resolve) => {
+        // Set up timeout
+        const timeout = setTimeout(() => {
+          if (this.responsePromise) {
+            this.responsePromise.resolve({
+              success: false,
+              error: "Execution timed out after 30 seconds",
+              executionTime: 30000,
+            });
+            this.responsePromise = null;
+            this.kill(); // Kill the process on timeout
+          }
+        }, 30000);
+
+        this.responsePromise = {
+          resolve: (result) => {
+            clearTimeout(timeout);
+            resolve(result);
+          },
+          startTime,
+        };
+
+        // Send the code to the Python process
+        const request = JSON.stringify({ code }) + "\n";
+        this.process!.stdin!.write(request);
+      });
+    } catch (err) {
+      const error = err as Error;
+      return {
+        success: false,
+        error: `Failed to execute Python: ${error.message}`,
+        executionTime: Date.now() - startTime,
+      };
+    }
+  }
+
+  kill(): void {
+    if (this.process && !this.process.killed) {
+      this.process.kill();
+      this.process = null;
+    }
+    if (this.tempFile) {
+      fs.promises.unlink(this.tempFile).catch(() => {});
+      this.tempFile = null;
+    }
+  }
+}
+
+// Global session for the current request
+// In a real app, you might want to manage sessions per user/request
+let currentSession: PythonSession | null = null;
+
+/**
+ * Get or create a Python session.
+ * Call this at the start of a chat turn to get a fresh session.
+ */
+export function getPythonSession(): PythonSession {
+  if (!currentSession) {
+    currentSession = new PythonSession();
+  }
+  return currentSession;
+}
+
+/**
+ * End the current Python session.
+ * Call this at the end of a chat turn to clean up.
+ */
+export function endPythonSession(): void {
+  if (currentSession) {
+    currentSession.kill();
+    currentSession = null;
+  }
+}
+
+/**
+ * Execute Python code in the current session.
+ * Variables persist across calls within the same session.
+ */
+export async function executePython(code: string): Promise<PythonResult> {
+  const session = getPythonSession();
+  return session.execute(code);
 }
