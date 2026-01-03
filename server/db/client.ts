@@ -86,3 +86,41 @@ export async function saveMessage(role: "user" | "assistant", content: string) {
   `;
   return row;
 }
+
+// Scratchpad - AI's notes about its data architecture decisions
+// Stored in a simple key-value table
+export async function ensureScratchpadTable() {
+  await sql`
+    CREATE TABLE IF NOT EXISTS ai_scratchpad (
+      key TEXT PRIMARY KEY DEFAULT 'main',
+      content TEXT NOT NULL DEFAULT '',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `;
+  // Insert default row if not exists
+  await sql`
+    INSERT INTO ai_scratchpad (key, content)
+    VALUES ('main', '')
+    ON CONFLICT (key) DO NOTHING
+  `;
+}
+
+export async function getScratchpad(): Promise<string> {
+  try {
+    const [row] = await sql`
+      SELECT content FROM ai_scratchpad WHERE key = 'main'
+    `;
+    return row?.content ?? "";
+  } catch {
+    // Table might not exist yet
+    return "";
+  }
+}
+
+export async function updateScratchpad(content: string): Promise<void> {
+  await sql`
+    INSERT INTO ai_scratchpad (key, content, updated_at)
+    VALUES ('main', ${content}, now())
+    ON CONFLICT (key) DO UPDATE SET content = ${content}, updated_at = now()
+  `;
+}

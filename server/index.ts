@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { api } from "./api/routes";
 import { config } from "./config";
-import { ensureMessagesTable } from "./db/client";
+import { ensureMessagesTable, ensureScratchpadTable } from "./db/client";
 
 const app = new Hono();
 
@@ -12,6 +12,10 @@ app.route("/api", api);
 ensureMessagesTable()
   .then(() => console.log("✓ messages table ready"))
   .catch((err) => console.error("✗ failed to init messages table:", err));
+
+ensureScratchpadTable()
+  .then(() => console.log("✓ scratchpad table ready"))
+  .catch((err) => console.error("✗ failed to init scratchpad table:", err));
 
 console.log(`
 🚀 Jot API running on port ${config.port}

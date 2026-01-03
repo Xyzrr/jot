@@ -1,7 +1,12 @@
 import { streamText, tool, type CoreMessage } from "ai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
-import { executeSQL, getSchema } from "../db/client";
+import {
+  executeSQL,
+  getSchema,
+  getScratchpad,
+  updateScratchpad,
+} from "../db/client";
 import {
   uploadFile,
   getFile,
@@ -109,6 +114,16 @@ Guidelines:
 Be concise but warm. You're a trusted partner in capturing and connecting knowledge. Don't over-explain unless asked. When storing information, just confirm briefly what you captured.
 
 Don't introduce yourself or explain who you are - assume we already know each other and skip the pleasantries.
+
+## Scratchpad
+
+You have a scratchpad for notes about your data architecture decisions. Use it to document:
+- What tables you've created and why
+- How you've structured the postgres schema
+- How you're organizing files in R2 storage
+- Any conventions or patterns you're following
+
+The scratchpad content is injected into this system prompt every message, so you always have access to your architectural notes. Use the \`update_scratchpad\` tool whenever you make significant schema or storage decisions - this helps you maintain consistency across sessions.
 
 ## Current Context
 
@@ -275,19 +290,63 @@ print(df.describe().to_string())
       return await executePython(code);
     },
   }),
+
+  update_scratchpad: tool({
+    description: `Update your scratchpad with notes about your data architecture decisions. The scratchpad is injected into your system prompt each message, so you always see your notes.
+
+Use this to document:
+- Tables you've created and their purpose
+- Schema design decisions and rationale
+- R2 storage organization (folder structure, naming conventions)
+- Patterns or conventions you're following
+
+This completely replaces the previous scratchpad content, so include everything you want to remember.`,
+    parameters: z.object({
+      content: z
+        .string()
+        .describe(
+          "The full scratchpad content (replaces existing content entirely)"
+        ),
+    }),
+    execute: async ({ content }) => {
+      await updateScratchpad(content);
+      return { success: true, message: "Scratchpad updated" };
+    },
+  }),
 };
 
-// Get initial context about the database
-async function getDatabaseContext(): Promise<string> {
+// Get initial context about the database and scratchpad
+async function getContextInjection(): Promise<string> {
+  let context = "";
+
+  // Fetch scratchpad
+  try {
+    const scratchpad = await getScratchpad();
+    if (scratchpad && scratchpad.trim()) {
+      context += `\n\n## Your Scratchpad Notes\n\n${scratchpad}`;
+    } else {
+      context +=
+        "\n\n[Scratchpad is empty - use update_scratchpad to record your architectural decisions]";
+    }
+  } catch {
+    context += "\n\n[Could not fetch scratchpad]";
+  }
+
+  // Fetch database schema
   try {
     const schema = await getSchema();
     if (Array.isArray(schema) && schema.length === 0) {
-      return "\n\n[Database is empty - no tables exist yet. Create schema as needed.]";
+      context +=
+        "\n\n[Database is empty - no tables exist yet. Create schema as needed.]";
+    } else {
+      context += `\n\n[Current database schema: ${JSON.stringify(schema)}]`;
     }
-    return `\n\n[Current database schema: ${JSON.stringify(schema)}]`;
   } catch {
-    return "\n\n[Could not fetch database schema - database may be initializing]";
+    context +=
+      "\n\n[Could not fetch database schema - database may be initializing]";
   }
+
+  return context;
 }
 
 export interface Message {
@@ -308,7 +367,7 @@ export type StreamEvent =
 export async function* chatStream(
   messages: Message[]
 ): AsyncGenerator<StreamEvent> {
-  const dbContext = await getDatabaseContext();
+  const contextInjection = await getContextInjection();
 
   // Convert to AI SDK message format
   const coreMessages: CoreMessage[] = messages.map((m) => ({
@@ -319,7 +378,7 @@ export async function* chatStream(
   try {
     const result = streamText({
       model: anthropic("claude-opus-4-5-20251101"),
-      system: SYSTEM_PROMPT + dbContext,
+      system: SYSTEM_PROMPT + contextInjection,
       messages: coreMessages,
       tools,
       maxSteps: 10, // Allow multiple tool calls in sequence
