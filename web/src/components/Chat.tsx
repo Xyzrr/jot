@@ -25,7 +25,7 @@ export function Chat() {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [shouldAutoscroll, setShouldAutoscroll] = useState(true);
+  const shouldAutoscroll = useRef(true);
 
   // Check if user is at the bottom of the scroll container
   const isAtBottom = useCallback(() => {
@@ -43,9 +43,9 @@ export function Chat() {
     (e: WheelEvent) => {
       const atBottom = isAtBottom();
       if (e.deltaY < 0) {
-        setShouldAutoscroll(false);
+        shouldAutoscroll.current = false;
       } else if (atBottom) {
-        setShouldAutoscroll(true);
+        shouldAutoscroll.current = true;
       }
     },
     [isAtBottom]
@@ -53,15 +53,15 @@ export function Chat() {
 
   // Autoscroll when messages change or streaming content updates
   useEffect(() => {
-    if (shouldAutoscroll) {
+    if (shouldAutoscroll.current) {
       messagesEndRef.current?.scrollIntoView();
     }
-  }, [messages, streamingBlocks, shouldAutoscroll]);
+  }, [messages, streamingBlocks]);
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
-    setShouldAutoscroll(true);
+    shouldAutoscroll.current = true;
     sendMessage(input.trim());
     setInput("");
     if (textareaRef.current) {
