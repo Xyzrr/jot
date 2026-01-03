@@ -1,8 +1,11 @@
-import { streamText, tool, type CoreMessage } from "ai";
+import { streamText, tool, type CoreMessage, type ToolResultPart } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
 import { getSchema, getScratchpad, updateScratchpad } from "../db/client";
 import { executePython, endPythonSession } from "../python/executor";
+
+// Re-export CoreMessage for use by routes
+export type { CoreMessage };
 
 // System prompt
 const SYSTEM_PROMPT = `You are Jot, a highly capable AI assistant that serves as a personal knowledge and life management system. You have direct access to:
@@ -241,23 +244,6 @@ async function getContextInjection(): Promise<string> {
   return context;
 }
 
-export type Block =
-  | { type: "text"; content: string }
-  | { type: "tool-call"; toolCallId: string; toolName: string; args: unknown }
-  | { type: "tool-call-streaming"; toolName: string; partialArgs: string }
-  | {
-      type: "tool-result";
-      toolCallId: string;
-      toolName: string;
-      result: unknown;
-    };
-
-export interface Message {
-  role: "user" | "assistant";
-  content: string;
-  blocks?: Block[];
-}
-
 // Truncate large tool results to avoid blowing up context window
 function truncateResult(result: unknown, maxLength = 8000): string {
   const str = typeof result === "string" ? result : JSON.stringify(result);
@@ -268,84 +254,20 @@ function truncateResult(result: unknown, maxLength = 8000): string {
   );
 }
 
-// Convert our Message format to AI SDK CoreMessage format
-function convertToCoreMessages(messages: Message[]): CoreMessage[] {
-  const coreMessages: CoreMessage[] = [];
-
-  for (const msg of messages) {
-    if (msg.role === "user") {
-      // User messages are simple
-      coreMessages.push({ role: "user", content: msg.content });
-    } else if (msg.role === "assistant") {
-      // Check if this assistant message has tool calls
-      const toolCalls = msg.blocks?.filter((b) => b.type === "tool-call") as
-        | {
-            type: "tool-call";
-            toolCallId: string;
-            toolName: string;
-            args: unknown;
-          }[]
-        | undefined;
-      const toolResults = msg.blocks?.filter(
-        (b) => b.type === "tool-result"
-      ) as
-        | {
-            type: "tool-result";
-            toolCallId: string;
-            toolName: string;
-            result: unknown;
-          }[]
-        | undefined;
-
-      if (toolCalls && toolCalls.length > 0) {
-        // Assistant message with tool calls
-        const content: Array<
-          | { type: "text"; text: string }
-          | {
-              type: "tool-call";
-              toolCallId: string;
-              toolName: string;
-              args: unknown;
-            }
-        > = [];
-
-        // Add text content if present
-        if (msg.content) {
-          content.push({ type: "text", text: msg.content });
-        }
-
-        // Add tool calls
-        for (const tc of toolCalls) {
-          content.push({
-            type: "tool-call",
-            toolCallId: tc.toolCallId,
-            toolName: tc.toolName,
-            args: tc.args,
-          });
-        }
-
-        coreMessages.push({ role: "assistant", content });
-
-        // Add tool results as separate tool messages
-        if (toolResults && toolResults.length > 0) {
-          coreMessages.push({
-            role: "tool",
-            content: toolResults.map((tr) => ({
-              type: "tool-result" as const,
-              toolCallId: tr.toolCallId,
-              toolName: tr.toolName,
-              result: truncateResult(tr.result),
-            })),
-          });
-        }
-      } else {
-        // Simple assistant message without tool calls
-        coreMessages.push({ role: "assistant", content: msg.content });
-      }
+// Truncate tool results in messages before sending to model
+function truncateToolResults(messages: CoreMessage[]): CoreMessage[] {
+  return messages.map((msg) => {
+    if (msg.role === "tool") {
+      return {
+        ...msg,
+        content: msg.content.map((part: ToolResultPart) => ({
+          ...part,
+          result: truncateResult(part.result),
+        })),
+      };
     }
-  }
-
-  return coreMessages;
+    return msg;
+  });
 }
 
 // Stream events that get sent to the client
@@ -364,18 +286,15 @@ export type StreamEvent =
 
 // Main streaming chat function
 export async function* chatStream(
-  messages: Message[]
+  messages: CoreMessage[]
 ): AsyncGenerator<StreamEvent> {
   const contextInjection = await getContextInjection();
-
-  // Convert to AI SDK message format (including tool calls and results)
-  const coreMessages = convertToCoreMessages(messages);
 
   try {
     const result = streamText({
       model: openai("gpt-5.2"),
       system: SYSTEM_PROMPT + contextInjection,
-      messages: coreMessages,
+      messages: truncateToolResults(messages),
       tools,
       maxSteps: 10, // Allow multiple tool calls in sequence
       experimental_toolCallStreaming: true, // Enable streaming of tool call arguments

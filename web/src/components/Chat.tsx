@@ -9,9 +9,17 @@ import {
 } from "react";
 import { useChat } from "../hooks/useChat";
 import { Message } from "./Message";
+import { StreamingMessage } from "./StreamingMessage";
 
 export function Chat() {
-  const { messages, isLoading, sendMessage } = useChat();
+  const {
+    messages,
+    isLoading,
+    sendMessage,
+    streamingBlocks,
+    partialToolArgs,
+    isStreamingToolCall,
+  } = useChat();
   const [input, setInput] = useState("");
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -42,12 +50,12 @@ export function Chat() {
     [isAtBottom]
   );
 
-  // Autoscroll when messages change, but only if enabled
+  // Autoscroll when messages change or streaming content updates
   useEffect(() => {
     if (shouldAutoscroll) {
       messagesEndRef.current?.scrollIntoView();
     }
-  }, [messages, shouldAutoscroll]);
+  }, [messages, streamingBlocks, shouldAutoscroll]);
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -77,6 +85,27 @@ export function Chat() {
     }
   };
 
+  // Check if there's streaming content to show
+  const hasStreamingContent =
+    isLoading && (streamingBlocks.length > 0 || isStreamingToolCall);
+
+  // Build tool results map from messages
+  // Map toolCallId -> result for looking up results
+  const toolResultsMap = new Map<
+    string,
+    { toolName: string; result: unknown }
+  >();
+  for (const msg of messages) {
+    if (msg.message.role === "tool") {
+      for (const part of msg.message.content) {
+        toolResultsMap.set(part.toolCallId, {
+          toolName: part.toolName,
+          result: part.result,
+        });
+      }
+    }
+  }
+
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <main
@@ -86,7 +115,7 @@ export function Chat() {
         style={{ WebkitOverflowScrolling: "touch" }}
       >
         <div className="flex flex-col gap-10">
-          {messages.length === 0 && (
+          {messages.length === 0 && !isLoading && (
             <div className="py-16">
               <h1 className="text-2xl font-light text-text-secondary mb-4 tracking-tight">
                 tell me anything
@@ -94,17 +123,29 @@ export function Chat() {
             </div>
           )}
 
-          {messages.map((message, i) => (
-            <Message
-              key={message.id}
-              message={message}
-              isStreaming={
-                isLoading &&
-                i === messages.length - 1 &&
-                message.role === "assistant"
-              }
+          {messages.map((msg) => {
+            // Skip tool messages - they're rendered with their assistant message
+            if (msg.message.role === "tool") return null;
+            return (
+              <Message
+                key={msg.id}
+                message={msg.message}
+                toolResults={toolResultsMap}
+              />
+            );
+          })}
+
+          {hasStreamingContent && (
+            <StreamingMessage
+              blocks={streamingBlocks}
+              partialToolArgs={partialToolArgs}
+              isStreamingToolCall={isStreamingToolCall}
             />
-          ))}
+          )}
+
+          {isLoading && !hasStreamingContent && (
+            <div className="w-1.5 h-1.5 bg-text-muted rounded-full opacity-0 animate-breathe" />
+          )}
 
           <div ref={messagesEndRef} />
         </div>

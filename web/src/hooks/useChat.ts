@@ -1,84 +1,94 @@
 import { useState, useCallback, useRef } from "react";
+import type { CoreMessage } from "ai";
 
-export interface Message {
+// Re-export for convenience
+export type { CoreMessage };
+
+// Block types for streaming display (preserves order)
+export type StreamingBlock =
+  | { type: "text"; content: string }
+  | {
+      type: "tool-call";
+      toolCallId: string;
+      toolName: string;
+      args: unknown;
+      result?: unknown;
+    };
+
+// Local ID tracking for React keys (CoreMessage doesn't have IDs)
+export interface MessageWithId {
   id: string;
-  role: "user" | "assistant";
-  content: string;
-  blocks: Block[];
+  message: CoreMessage;
 }
 
-export type Block =
-  | { type: "text"; content: string }
-  | { type: "tool-call"; toolCallId: string; toolName: string; args: unknown }
-  | { type: "tool-call-streaming"; toolName: string; partialArgs: string }
-  | { type: "tool-result"; toolCallId: string; toolName: string; result: unknown };
-
 interface ChatState {
-  messages: Message[];
+  messages: MessageWithId[];
   isLoading: boolean;
+  // Streaming state - blocks in order as they arrive
+  streamingBlocks: StreamingBlock[];
+  // For streaming code display
+  partialToolArgs: string;
+  isStreamingToolCall: boolean;
 }
 
 export function useChat() {
   const [state, setState] = useState<ChatState>({
     messages: [],
     isLoading: false,
+    streamingBlocks: [],
+    partialToolArgs: "",
+    isStreamingToolCall: false,
   });
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const sendMessage = useCallback(
     async (content: string) => {
-      const userMessage: Message = {
+      const userMessage: MessageWithId = {
         id: crypto.randomUUID(),
-        role: "user",
-        content,
-        blocks: [{ type: "text", content }],
+        message: { role: "user", content },
       };
 
-      const assistantMessage: Message = {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content: "",
-        blocks: [],
-      };
+      // Placeholder for assistant response
+      const assistantId = crypto.randomUUID();
 
       setState((prev) => ({
         ...prev,
-        messages: [...prev.messages, userMessage, assistantMessage],
+        messages: [...prev.messages, userMessage],
         isLoading: true,
+        streamingBlocks: [],
+        partialToolArgs: "",
+        isStreamingToolCall: false,
       }));
 
       abortControllerRef.current = new AbortController();
 
       const showError = (error: string, details?: string) => {
         const errorContent = details
-          ? `${error}\n\n\`\`\`\n${details}\n\`\`\``
-          : error;
+          ? `<p>⚠️ <strong>Error:</strong> ${error}</p><pre>${details}</pre>`
+          : `<p>⚠️ <strong>Error:</strong> ${error}</p>`;
         setState((prev) => ({
           ...prev,
-          messages: prev.messages.map((m) =>
-            m.id === assistantMessage.id
-              ? {
-                  ...m,
-                  blocks: [
-                    { type: "text", content: `⚠️ **Error:** ${errorContent}` },
-                  ],
-                  content: errorContent,
-                }
-              : m
-          ),
+          messages: [
+            ...prev.messages,
+            {
+              id: assistantId,
+              message: { role: "assistant", content: errorContent },
+            },
+          ],
+          isLoading: false,
         }));
       };
 
       try {
+        // Convert to CoreMessage[] for the API
+        const apiMessages: CoreMessage[] = state.messages.map((m) => m.message);
+        apiMessages.push({ role: "user", content });
+
         const response = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            messages: [...state.messages, userMessage]
-              .filter((m) => m.role === "user" || m.role === "assistant")
-              .map((m) => ({ role: m.role, content: m.content, blocks: m.blocks })),
-          }),
+          body: JSON.stringify({ messages: apiMessages }),
           signal: abortControllerRef.current.signal,
         });
 
@@ -96,18 +106,15 @@ export function useChat() {
 
         const decoder = new TextDecoder();
         let buffer = "";
-        let fullText = "";
-        let currentBlockText = "";
-        let blocks: Block[] = [];
+        // Track blocks in order
+        let blocks: StreamingBlock[] = [];
+        let partialArgs = "";
 
-        const updateAssistant = (newBlocks: Block[], newContent: string) => {
+        const updateBlocks = (newBlocks: StreamingBlock[]) => {
+          blocks = newBlocks;
           setState((prev) => ({
             ...prev,
-            messages: prev.messages.map((m) =>
-              m.id === assistantMessage.id
-                ? { ...m, blocks: newBlocks, content: newContent }
-                : m
-            ),
+            streamingBlocks: blocks,
           }));
         };
 
@@ -129,118 +136,197 @@ export function useChat() {
 
                 switch (event.type) {
                   case "text-delta": {
-                    fullText += event.content;
-                    currentBlockText += event.content;
-                    // Update or add text block
+                    // Append to last text block or create new one
                     const lastBlock = blocks[blocks.length - 1];
                     if (lastBlock?.type === "text") {
-                      blocks = [
+                      updateBlocks([
                         ...blocks.slice(0, -1),
-                        { type: "text", content: currentBlockText },
-                      ];
+                        {
+                          type: "text",
+                          content: lastBlock.content + event.content,
+                        },
+                      ]);
                     } else {
-                      blocks = [
+                      updateBlocks([
                         ...blocks,
-                        { type: "text", content: currentBlockText },
-                      ];
+                        { type: "text", content: event.content },
+                      ]);
                     }
-                    updateAssistant(blocks, fullText);
                     break;
                   }
 
                   case "tool-call-streaming": {
-                    // Update or add streaming block for code being generated
-                    currentBlockText = ""; // Reset for next text block
-                    const lastStreamingBlock = blocks[blocks.length - 1];
-                    if (
-                      lastStreamingBlock?.type === "tool-call-streaming" &&
-                      lastStreamingBlock.toolName === event.toolName
-                    ) {
-                      // Update existing streaming block
-                      blocks = [
-                        ...blocks.slice(0, -1),
-                        {
-                          type: "tool-call-streaming",
-                          toolName: event.toolName,
-                          partialArgs: event.partialArgs,
-                        },
-                      ];
-                    } else {
-                      // Add new streaming block
-                      blocks = [
-                        ...blocks,
-                        {
-                          type: "tool-call-streaming",
-                          toolName: event.toolName,
-                          partialArgs: event.partialArgs,
-                        },
-                      ];
-                    }
-                    updateAssistant(blocks, fullText);
+                    partialArgs = event.partialArgs;
+                    setState((prev) => ({
+                      ...prev,
+                      partialToolArgs: partialArgs,
+                      isStreamingToolCall: true,
+                    }));
                     break;
                   }
 
                   case "tool-call": {
-                    currentBlockText = ""; // Reset for next text block
-                    // Replace any streaming block with the final tool-call
-                    const prevBlock = blocks[blocks.length - 1];
-                    if (
-                      prevBlock?.type === "tool-call-streaming" &&
-                      prevBlock.toolName === event.toolName
-                    ) {
-                      blocks = [
-                        ...blocks.slice(0, -1),
-                        {
-                          type: "tool-call",
-                          toolCallId: event.toolCallId,
-                          toolName: event.toolName,
-                          args: event.args,
-                        },
-                      ];
-                    } else {
-                      blocks = [
-                        ...blocks,
-                        {
-                          type: "tool-call",
-                          toolCallId: event.toolCallId,
-                          toolName: event.toolName,
-                          args: event.args,
-                        },
-                      ];
-                    }
-                    updateAssistant(blocks, fullText);
+                    // Add tool call block
+                    updateBlocks([
+                      ...blocks,
+                      {
+                        type: "tool-call",
+                        toolCallId: event.toolCallId,
+                        toolName: event.toolName,
+                        args: event.args,
+                      },
+                    ]);
+                    setState((prev) => ({
+                      ...prev,
+                      partialToolArgs: "",
+                      isStreamingToolCall: false,
+                    }));
                     break;
                   }
 
-                  case "tool-result":
-                    blocks = [
-                      ...blocks,
-                      {
-                        type: "tool-result",
-                        toolCallId: event.toolCallId,
-                        toolName: event.toolName,
-                        result: event.result,
-                      },
-                    ];
-                    updateAssistant(blocks, fullText);
+                  case "tool-result": {
+                    // Find the tool call block and attach result
+                    const updatedBlocks = blocks.map((block) => {
+                      if (
+                        block.type === "tool-call" &&
+                        block.toolCallId === event.toolCallId
+                      ) {
+                        return { ...block, result: event.result };
+                      }
+                      return block;
+                    });
+                    updateBlocks(updatedBlocks);
                     break;
+                  }
+
+                  case "done": {
+                    // Finalize the messages in CoreMessage format
+                    const newMessages: MessageWithId[] = [];
+
+                    // Extract text and tool calls for CoreMessage format
+                    let fullText = "";
+                    const toolCalls: Array<{
+                      toolCallId: string;
+                      toolName: string;
+                      args: unknown;
+                    }> = [];
+                    const toolResults: Array<{
+                      toolCallId: string;
+                      toolName: string;
+                      result: unknown;
+                    }> = [];
+
+                    for (const block of blocks) {
+                      if (block.type === "text") {
+                        fullText += block.content;
+                      } else if (block.type === "tool-call") {
+                        toolCalls.push({
+                          toolCallId: block.toolCallId,
+                          toolName: block.toolName,
+                          args: block.args,
+                        });
+                        if (block.result !== undefined) {
+                          toolResults.push({
+                            toolCallId: block.toolCallId,
+                            toolName: block.toolName,
+                            result: block.result,
+                          });
+                        }
+                      }
+                    }
+
+                    // Build assistant message content
+                    if (fullText || toolCalls.length > 0) {
+                      const assistantContent: Array<
+                        | { type: "text"; text: string }
+                        | {
+                            type: "tool-call";
+                            toolCallId: string;
+                            toolName: string;
+                            args: unknown;
+                          }
+                      > = [];
+
+                      // Add parts in order from blocks
+                      for (const block of blocks) {
+                        if (block.type === "text") {
+                          assistantContent.push({
+                            type: "text",
+                            text: block.content,
+                          });
+                        } else if (block.type === "tool-call") {
+                          assistantContent.push({
+                            type: "tool-call",
+                            toolCallId: block.toolCallId,
+                            toolName: block.toolName,
+                            args: block.args,
+                          });
+                        }
+                      }
+
+                      newMessages.push({
+                        id: assistantId,
+                        message: {
+                          role: "assistant",
+                          content:
+                            assistantContent.length === 1 &&
+                            assistantContent[0].type === "text"
+                              ? assistantContent[0].text
+                              : assistantContent,
+                        },
+                      });
+                    }
+
+                    // Add tool results as separate tool message
+                    if (toolResults.length > 0) {
+                      newMessages.push({
+                        id: crypto.randomUUID(),
+                        message: {
+                          role: "tool",
+                          content: toolResults.map((tr) => ({
+                            type: "tool-result" as const,
+                            toolCallId: tr.toolCallId,
+                            toolName: tr.toolName,
+                            result: tr.result,
+                          })),
+                        },
+                      });
+                    }
+
+                    setState((prev) => ({
+                      ...prev,
+                      messages: [...prev.messages, ...newMessages],
+                      isLoading: false,
+                      streamingBlocks: [],
+                      partialToolArgs: "",
+                      isStreamingToolCall: false,
+                    }));
+                    break;
+                  }
 
                   case "error": {
-                    const errorText = `⚠️ **Error:** ${event.message}`;
-                    fullText += errorText;
-                    blocks = [...blocks, { type: "text", content: errorText }];
-                    updateAssistant(blocks, fullText);
+                    const errorText = `<p>⚠️ <strong>Error:</strong> ${event.message}</p>`;
+                    // Append error to last text block or create new one
+                    const lastBlock = blocks[blocks.length - 1];
+                    if (lastBlock?.type === "text") {
+                      updateBlocks([
+                        ...blocks.slice(0, -1),
+                        {
+                          type: "text",
+                          content: lastBlock.content + errorText,
+                        },
+                      ]);
+                    } else {
+                      updateBlocks([
+                        ...blocks,
+                        { type: "text", content: errorText },
+                      ]);
+                    }
                     break;
                   }
                 }
               } catch (e) {
                 console.error("Failed to parse SSE:", data, e);
-                const parseError = `⚠️ **Parse error:** ${
-                  (e as Error).message
-                }\n\`\`\`\n${data}\n\`\`\``;
-                fullText += parseError;
-                blocks = [...blocks, { type: "text", content: parseError }];
-                updateAssistant(blocks, fullText);
               }
             }
           }
@@ -248,7 +334,6 @@ export function useChat() {
       } catch (error) {
         const err = error as Error;
         if (err.name === "AbortError") {
-          // User cancelled, not an error
           return;
         }
         console.error("Chat error:", err);
@@ -256,20 +341,7 @@ export function useChat() {
           err.name === "TypeError" && err.message === "Failed to fetch"
             ? "Network error - server may be down"
             : err.message || "Unknown error";
-        setState((prev) => ({
-          ...prev,
-          messages: prev.messages.map((m) =>
-            m.id === assistantMessage.id
-              ? {
-                  ...m,
-                  blocks: [
-                    { type: "text", content: `⚠️ **Error:** ${errorMessage}` },
-                  ],
-                  content: errorMessage,
-                }
-              : m
-          ),
-        }));
+        showError(errorMessage);
       } finally {
         setState((prev) => ({ ...prev, isLoading: false }));
         abortControllerRef.current = null;
@@ -285,6 +357,10 @@ export function useChat() {
   return {
     messages: state.messages,
     isLoading: state.isLoading,
+    // Streaming state for UI
+    streamingBlocks: state.streamingBlocks,
+    partialToolArgs: state.partialToolArgs,
+    isStreamingToolCall: state.isStreamingToolCall,
     sendMessage,
     stopGeneration,
   };

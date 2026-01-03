@@ -1,41 +1,70 @@
 import { useState, useRef, useEffect } from "react";
-import type { Message as MessageType, Block } from "../hooks/useChat";
+import type { CoreMessage } from "ai";
 import { ToolCall } from "./ToolCall";
 import { ToolResult } from "./ToolResult";
-import { CodeStreaming } from "./CodeStreaming";
 
 interface Props {
-  message: MessageType;
-  isStreaming?: boolean;
+  message: CoreMessage;
+  toolResults?: Map<string, { toolName: string; result: unknown }>;
 }
 
-export function Message({ message, isStreaming }: Props) {
+export function Message({ message, toolResults }: Props) {
   if (message.role === "user") {
+    const content =
+      typeof message.content === "string"
+        ? message.content
+        : message.content
+            .map((p) => (p.type === "text" ? p.text : ""))
+            .join("");
     return (
       <div className="self-end max-w-[85%] py-2 px-4 bg-bg-tertiary text-text-primary rounded-lg ml-auto text-[0.95rem] select-text animate-fade-in whitespace-pre-wrap">
-        {message.content}
+        {content}
       </div>
     );
   }
 
-  return <AssistantMessage message={message} isStreaming={isStreaming} />;
+  if (message.role === "assistant") {
+    return <AssistantMessage message={message} toolResults={toolResults} />;
+  }
+
+  // Tool messages are rendered as part of assistant messages
+  return null;
 }
 
-function AssistantMessage({ message, isStreaming }: Props) {
+function AssistantMessage({
+  message,
+  toolResults,
+}: {
+  message: Extract<CoreMessage, { role: "assistant" }>;
+  toolResults?: Map<string, { toolName: string; result: unknown }>;
+}) {
   const [showCode, setShowCode] = useState(false);
   const [copied, setCopied] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
+  // Get full text for copy/code view
+  const content = message.content;
+  let fullText = "";
+  if (typeof content === "string") {
+    fullText = content;
+  } else if (Array.isArray(content)) {
+    for (const part of content) {
+      if (part.type === "text") {
+        fullText += part.text;
+      }
+    }
+  }
+
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(message.content);
+    await navigator.clipboard.writeText(fullText);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
 
-  // Execute scripts after streaming completes
+  // Execute scripts after render
   useEffect(() => {
-    if (!isStreaming && contentRef.current && message.content) {
-      const scripts = message.content.match(/<script>([\s\S]*?)<\/script>/gi);
+    if (contentRef.current && fullText) {
+      const scripts = fullText.match(/<script>([\s\S]*?)<\/script>/gi);
       if (scripts) {
         scripts.forEach((script) => {
           const code = script.replace(/<\/?script>/gi, "");
@@ -48,44 +77,74 @@ function AssistantMessage({ message, isStreaming }: Props) {
         });
       }
     }
-  }, [isStreaming, message.content]);
+  }, [fullText]);
 
-  // Group tool calls with their results
-  const groupedBlocks = groupToolBlocks(message.blocks);
+  // Render content parts in order
+  const renderParts = () => {
+    if (typeof content === "string") {
+      const displayContent = content.replace(
+        /<script>[\s\S]*?<\/script>/gi,
+        ""
+      );
+      return (
+        displayContent && (
+          <div
+            className="assistant-content"
+            dangerouslySetInnerHTML={{ __html: displayContent }}
+          />
+        )
+      );
+    }
+
+    if (!Array.isArray(content)) return null;
+
+    return content.map((part, i) => {
+      if (part.type === "text") {
+        const displayContent = part.text.replace(
+          /<script>[\s\S]*?<\/script>/gi,
+          ""
+        );
+        return (
+          displayContent && (
+            <div
+              key={i}
+              className="assistant-content"
+              dangerouslySetInnerHTML={{ __html: displayContent }}
+            />
+          )
+        );
+      }
+
+      if (part.type === "tool-call") {
+        const result = toolResults?.get(part.toolCallId);
+        return (
+          <div key={part.toolCallId} className="tool-group">
+            <ToolCall
+              toolName={part.toolName}
+              args={part.args}
+              hasResult={!!result}
+            />
+            {result && (
+              <ToolResult toolName={result.toolName} result={result.result} />
+            )}
+          </div>
+        );
+      }
+
+      return null;
+    });
+  };
 
   return (
     <div className="flex flex-col gap-4 animate-fade-in group">
       <div className="flex flex-col gap-4" ref={contentRef}>
-        {groupedBlocks.map((item, i) => {
-          if (item.type === "tool-group") {
-            return (
-              <div key={i} className="tool-group">
-                <ToolCall
-                  toolName={item.call.toolName}
-                  args={item.call.args}
-                  hasResult={!!item.result}
-                />
-                {item.result && (
-                  <ToolResult
-                    toolName={item.result.toolName}
-                    result={item.result.result}
-                  />
-                )}
-              </div>
-            );
-          }
-          return <BlockRenderer key={i} block={item.block} />;
-        })}
+        {renderParts()}
       </div>
-
-      {isStreaming && (
-        <div className="w-1.5 h-1.5 bg-text-muted rounded-full opacity-0 animate-breathe" />
-      )}
 
       {showCode && (
         <div className="mt-2">
           <pre className="m-0 p-4 bg-bg-secondary border border-border rounded-lg font-mono text-xs text-text-muted overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap break-words">
-            <code className="bg-transparent p-0">{message.content}</code>
+            <code className="bg-transparent p-0">{fullText}</code>
           </pre>
         </div>
       )}
@@ -135,70 +194,5 @@ function AssistantMessage({ message, isStreaming }: Props) {
         </button>
       </div>
     </div>
-  );
-}
-
-type GroupedItem = 
-  | { type: "tool-group"; call: Extract<Block, { type: "tool-call" }>; result?: Extract<Block, { type: "tool-result" }> }
-  | { type: "block"; block: Block };
-
-function groupToolBlocks(blocks: Block[]): GroupedItem[] {
-  const result: GroupedItem[] = [];
-  let i = 0;
-
-  while (i < blocks.length) {
-    const block = blocks[i];
-
-    if (block.type === "tool-call") {
-      const nextBlock = blocks[i + 1];
-      // Check if next block is the matching result
-      if (nextBlock?.type === "tool-result" && nextBlock.toolCallId === block.toolCallId) {
-        result.push({
-          type: "tool-group",
-          call: block,
-          result: nextBlock,
-        });
-        i += 2;
-      } else {
-        // Tool call without result yet
-        result.push({
-          type: "tool-group",
-          call: block,
-        });
-        i += 1;
-      }
-    } else if (block.type === "tool-result") {
-      // Orphan result (shouldn't happen but handle gracefully)
-      result.push({ type: "block", block });
-      i += 1;
-    } else {
-      result.push({ type: "block", block });
-      i += 1;
-    }
-  }
-
-  return result;
-}
-
-function BlockRenderer({ block }: { block: Block }) {
-  switch (block.type) {
-    case "text":
-      return <TextBlock content={block.content} />;
-    case "tool-call-streaming":
-      return <CodeStreaming partialArgs={block.partialArgs} />;
-    default:
-      return null;
-  }
-}
-
-function TextBlock({ content }: { content: string }) {
-  // Strip script tags for display (they execute separately)
-  const displayContent = content.replace(/<script>[\s\S]*?<\/script>/gi, "");
-
-  return (
-    <div
-      className="assistant-content"
-      dangerouslySetInnerHTML={{ __html: displayContent }}
-    />
   );
 }

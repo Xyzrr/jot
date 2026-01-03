@@ -1,8 +1,13 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
-import { chatStream, type Message } from "../ai/assistant";
-import { checkConnection, getSchema, executeSQL, saveMessage } from "../db/client";
+import { chatStream, type CoreMessage } from "../ai/assistant";
+import {
+  checkConnection,
+  getSchema,
+  executeSQL,
+  saveMessage,
+} from "../db/client";
 import { listFiles } from "../storage/r2";
 
 const api = new Hono();
@@ -23,7 +28,7 @@ api.get("/health", async (c) => {
 // Streaming chat endpoint using SSE
 // This is the main endpoint - everything streams
 api.post("/chat", async (c) => {
-  const body = await c.req.json<{ messages: Message[] }>();
+  const body = await c.req.json<{ messages: CoreMessage[] }>();
 
   if (!body.messages || !Array.isArray(body.messages)) {
     return c.json({ error: "messages array required" }, 400);
@@ -33,21 +38,27 @@ api.post("/chat", async (c) => {
   // This ensures the AI can query it from the database if needed
   const userMessage = body.messages[body.messages.length - 1];
   if (userMessage?.role === "user") {
-    await saveMessage("user", userMessage.content);
+    const content =
+      typeof userMessage.content === "string"
+        ? userMessage.content
+        : userMessage.content
+            .map((p) => (p.type === "text" ? p.text : ""))
+            .join("");
+    await saveMessage("user", content);
   }
 
   return streamSSE(c, async (stream) => {
     let assistantResponse = "";
-    
+
     try {
       for await (const event of chatStream(body.messages)) {
         // Accumulate assistant text
         if (event.type === "text-delta") {
           assistantResponse += event.content;
         }
-        
+
         await stream.writeSSE({ data: JSON.stringify(event) });
-        
+
         // Save assistant response when done
         if (event.type === "done" && assistantResponse) {
           saveMessage("assistant", assistantResponse).catch(console.error);
