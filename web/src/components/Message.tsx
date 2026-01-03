@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from "react";
-import type { CoreMessage } from "ai";
+import type { ModelMessage } from "ai";
 import { ToolCall } from "./ToolCall";
 import { ToolResult } from "./ToolResult";
 
 interface Props {
-  message: CoreMessage;
+  message: ModelMessage;
   toolResults?: Map<string, { toolName: string; result: unknown }>;
 }
 
@@ -35,7 +35,7 @@ function AssistantMessage({
   message,
   toolResults,
 }: {
-  message: Extract<CoreMessage, { role: "assistant" }>;
+  message: Extract<ModelMessage, { role: "assistant" }>;
   toolResults?: Map<string, { toolName: string; result: unknown }>;
 }) {
   const [showCode, setShowCode] = useState(false);
@@ -121,7 +121,7 @@ function AssistantMessage({
           <div key={part.toolCallId} className="tool-group">
             <ToolCall
               toolName={part.toolName}
-              args={part.args}
+              args={part.input}
               hasResult={!!result}
             />
             {result && (

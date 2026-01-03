@@ -208,7 +208,7 @@ export function useChat() {
                     // Finalize the messages in ModelMessage format
                     const newMessages: MessageWithId[] = [];
 
-                    // Extract text and tool calls for CoreMessage format
+                    // Extract text and tool calls for ModelMessage format
                     let fullText = "";
                     const toolCalls: Array<{
                       toolCallId: string;

@@ -267,24 +267,29 @@ function truncateToolResults(messages: ModelMessage[]): ModelMessage[] {
     if (msg.role === "tool") {
       return {
         ...msg,
-        content: msg.content.map((part: ToolResultPart | ToolApprovalResponse) => {
-          // Skip ToolApprovalResponse parts
-          if (!("output" in part)) {
-            return part;
-          }
-          const toolPart = part as ToolResultPart;
-          // Handle both old string format and new ToolResultOutput format
-          const outputValue =
-            typeof toolPart.output === "string"
-              ? toolPart.output
-              : toolPart.output.type === "text"
+        content: msg.content.map(
+          (part: ToolResultPart | ToolApprovalResponse) => {
+            // Skip ToolApprovalResponse parts
+            if (!("output" in part)) {
+              return part;
+            }
+            const toolPart = part as ToolResultPart;
+            // Handle both old string format and new ToolResultOutput format
+            const outputValue =
+              typeof toolPart.output === "string"
+                ? toolPart.output
+                : toolPart.output.type === "text"
                 ? toolPart.output.value
                 : JSON.stringify(toolPart.output);
-          return {
-            ...toolPart,
-            output: { type: "text" as const, value: truncateResult(outputValue) },
-          };
-        }),
+            return {
+              ...toolPart,
+              output: {
+                type: "text" as const,
+                value: truncateResult(outputValue),
+              },
+            };
+          }
+        ),
       };
     }
     return msg;

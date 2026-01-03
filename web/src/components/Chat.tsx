@@ -100,7 +100,7 @@ export function Chat() {
       for (const part of msg.message.content) {
         toolResultsMap.set(part.toolCallId, {
           toolName: part.toolName,
-          result: part.result,
+          result: part.output,
         });
       }
     }
