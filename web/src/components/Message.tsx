@@ -116,18 +116,21 @@ export function AssistantMessage({
   };
 
   // Execute scripts after render (only for completed messages)
+  // Use requestAnimationFrame to ensure dangerouslySetInnerHTML content is in DOM
   useEffect(() => {
     if (!isStreaming && contentRef.current && fullText) {
       const scripts = fullText.match(/<script>([\s\S]*?)<\/script>/gi);
       if (scripts) {
-        scripts.forEach((script) => {
-          const code = script.replace(/<\/?script>/gi, "");
-          try {
-            const fn = new Function("container", code);
-            fn(contentRef.current);
-          } catch (e) {
-            console.error("Script execution error:", e);
-          }
+        requestAnimationFrame(() => {
+          scripts.forEach((script) => {
+            const code = script.replace(/<\/?script>/gi, "");
+            try {
+              const fn = new Function("container", code);
+              fn(contentRef.current);
+            } catch (e) {
+              console.error("Script execution error:", e);
+            }
+          });
         });
       }
     }
