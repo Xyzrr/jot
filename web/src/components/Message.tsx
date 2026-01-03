@@ -184,7 +184,7 @@ export function AssistantMessage({
       )}
 
       {/* Completed: view code panel */}
-      {!isStreaming && showCode && (
+      {!isStreaming && showCode && fullText.trim() && (
         <div className="mt-2">
           <pre className="m-0 p-4 bg-bg-secondary border border-border rounded-lg font-mono text-xs text-text-muted overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap break-words">
             <code className="bg-transparent p-0">{fullText}</code>
@@ -192,8 +192,8 @@ export function AssistantMessage({
         </div>
       )}
 
-      {/* Completed: action buttons */}
-      {!isStreaming && (
+      {/* Completed: action buttons - only show when there's text content */}
+      {!isStreaming && fullText.trim() && (
         <div className="flex gap-0.5 mt-1 opacity-0 transition-opacity group-hover:opacity-100">
           <button
             className={`flex items-center justify-center w-6 h-6 p-0 bg-transparent border-none cursor-pointer rounded transition-colors ${
