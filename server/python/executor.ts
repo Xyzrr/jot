@@ -51,11 +51,8 @@ except Exception as _db_err:
 
 # R2/S3 storage (using boto3)
 try:
-    print("[DEBUG] Starting R2 setup...", file=sys.stderr)
     import boto3
-    print("[DEBUG] boto3 imported", file=sys.stderr)
     from botocore.config import Config
-    print("[DEBUG] botocore.config imported", file=sys.stderr)
     
     _s3_client = None
     def get_s3():
@@ -70,10 +67,8 @@ try:
                 region_name='auto'
             )
         return _s3_client
-    print("[DEBUG] get_s3 defined", file=sys.stderr)
     
     BUCKET = os.environ.get('R2_BUCKET_NAME', 'jot-storage')
-    print(f"[DEBUG] BUCKET={BUCKET}", file=sys.stderr)
     
     def upload_file(key, data, content_type=None):
         """Upload data to R2. data can be bytes or string."""
@@ -117,10 +112,8 @@ try:
             ExpiresIn=expires_in
         )
         return {"url": url, "key": key, "expires_in": expires_in}
-    print("[DEBUG] All R2 functions defined successfully", file=sys.stderr)
 
 except Exception as _r2_err:
-    print(f"[DEBUG] R2 setup FAILED: {_r2_err}", file=sys.stderr)
     _r2_error_msg = f"R2 storage not available: {_r2_err}"
     def upload_file(key, data, content_type=None):
         raise RuntimeError(_r2_error_msg)
