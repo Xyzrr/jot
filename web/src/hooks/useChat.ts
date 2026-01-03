@@ -29,6 +29,8 @@ interface ChatState {
   // For streaming code display
   partialToolArgs: string;
   isStreamingToolCall: boolean;
+  // ID of the currently streaming assistant message (for stable React keys)
+  currentAssistantId: string | null;
 }
 
 export function useChat() {
@@ -38,6 +40,7 @@ export function useChat() {
     streamingBlocks: [],
     partialToolArgs: "",
     isStreamingToolCall: false,
+    currentAssistantId: null,
   });
 
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -59,6 +62,7 @@ export function useChat() {
         streamingBlocks: [],
         partialToolArgs: "",
         isStreamingToolCall: false,
+        currentAssistantId: assistantId,
       }));
 
       abortControllerRef.current = new AbortController();
@@ -319,6 +323,7 @@ export function useChat() {
                       streamingBlocks: [],
                       partialToolArgs: "",
                       isStreamingToolCall: false,
+                      currentAssistantId: null,
                     }));
                     break;
                   }
@@ -389,6 +394,116 @@ export function useChat() {
       } catch (error) {
         const err = error as Error;
         if (err.name === "AbortError") {
+          // User cancelled - finalize whatever we have so far
+          setState((prev) => {
+            if (prev.streamingBlocks.length === 0) {
+              // Nothing was streamed yet, just reset
+              return {
+                ...prev,
+                isLoading: false,
+                currentAssistantId: null,
+              };
+            }
+
+            // Convert streaming blocks to finalized messages
+            const newMessages: MessageWithId[] = [];
+            type Step = {
+              content: Array<
+                | { type: "text"; text: string }
+                | {
+                    type: "tool-call";
+                    toolCallId: string;
+                    toolName: string;
+                    input: unknown;
+                  }
+              >;
+              toolResults: Array<{
+                toolCallId: string;
+                toolName: string;
+                result: unknown;
+              }>;
+            };
+
+            const steps: Step[] = [];
+            let currentStep: Step = { content: [], toolResults: [] };
+            let lastWasToolResult = false;
+
+            for (const block of prev.streamingBlocks) {
+              if (block.type === "text") {
+                if (lastWasToolResult && currentStep.toolResults.length > 0) {
+                  steps.push(currentStep);
+                  currentStep = { content: [], toolResults: [] };
+                }
+                currentStep.content.push({ type: "text", text: block.content });
+                lastWasToolResult = false;
+              } else if (block.type === "tool-call") {
+                if (lastWasToolResult && currentStep.toolResults.length > 0) {
+                  steps.push(currentStep);
+                  currentStep = { content: [], toolResults: [] };
+                }
+                currentStep.content.push({
+                  type: "tool-call",
+                  toolCallId: block.toolCallId,
+                  toolName: block.toolName,
+                  input: block.args,
+                });
+                if (block.result !== undefined) {
+                  currentStep.toolResults.push({
+                    toolCallId: block.toolCallId,
+                    toolName: block.toolName,
+                    result: block.result,
+                  });
+                  lastWasToolResult = true;
+                }
+              }
+            }
+
+            if (currentStep.content.length > 0) {
+              steps.push(currentStep);
+            }
+
+            for (let i = 0; i < steps.length; i++) {
+              const step = steps[i];
+              if (step.content.length > 0) {
+                newMessages.push({
+                  id: i === 0 ? assistantId : crypto.randomUUID(),
+                  message: {
+                    role: "assistant",
+                    content:
+                      step.content.length === 1 &&
+                      step.content[0].type === "text"
+                        ? step.content[0].text
+                        : step.content,
+                  },
+                });
+              }
+
+              if (step.toolResults.length > 0) {
+                newMessages.push({
+                  id: crypto.randomUUID(),
+                  message: {
+                    role: "tool",
+                    content: step.toolResults.map((tr) => ({
+                      type: "tool-result" as const,
+                      toolCallId: tr.toolCallId,
+                      toolName: tr.toolName,
+                      output: tr.result,
+                    })),
+                  } as ModelMessage,
+                });
+              }
+            }
+
+            return {
+              ...prev,
+              messages: [...prev.messages, ...newMessages],
+              isLoading: false,
+              streamingBlocks: [],
+              partialToolArgs: "",
+              isStreamingToolCall: false,
+              currentAssistantId: null,
+            };
+          });
           return;
         }
         console.error("Chat error:", err);
@@ -416,6 +531,7 @@ export function useChat() {
     streamingBlocks: state.streamingBlocks,
     partialToolArgs: state.partialToolArgs,
     isStreamingToolCall: state.isStreamingToolCall,
+    currentAssistantId: state.currentAssistantId,
     sendMessage,
     stopGeneration,
   };

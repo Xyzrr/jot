@@ -312,7 +312,8 @@ export type StreamEvent =
 
 // Main streaming chat function
 export async function* chatStream(
-  messages: ModelMessage[]
+  messages: ModelMessage[],
+  abortSignal?: AbortSignal
 ): AsyncGenerator<StreamEvent> {
   const contextInjection = await getContextInjection();
 
@@ -325,12 +326,18 @@ export async function* chatStream(
       messages: truncateToolResults(messages),
       tools,
       stopWhen: stepCountIs(10), // Allow multiple tool calls in sequence
+      abortSignal,
     });
 
     // Track which tool calls are for code execution (to stream their args)
     const streamingToolCalls = new Map<string, string>();
 
     for await (const event of result.fullStream) {
+      // Check if aborted before processing each event
+      if (abortSignal?.aborted) {
+        return;
+      }
+
       switch (event.type) {
         case "text-delta":
           hasYieldedContent = true;
@@ -400,6 +407,10 @@ export async function* chatStream(
     yield { type: "done" };
   } catch (error) {
     const err = error as Error;
+    // Don't log or yield error for aborts - it's expected behavior
+    if (err.name === "AbortError" || abortSignal?.aborted) {
+      return;
+    }
     console.error("[chatStream] Error:", err.message, err.stack);
     yield { type: "error", message: err.message };
   } finally {

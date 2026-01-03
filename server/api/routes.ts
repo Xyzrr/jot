@@ -47,11 +47,19 @@ api.post("/chat", async (c) => {
     await saveMessage("user", content);
   }
 
+  // Get abort signal from the request to handle client disconnection
+  const abortSignal = c.req.raw.signal;
+
   return streamSSE(c, async (stream) => {
     let assistantResponse = "";
 
     try {
-      for await (const event of chatStream(body.messages)) {
+      for await (const event of chatStream(body.messages, abortSignal)) {
+        // Check if client disconnected
+        if (abortSignal?.aborted) {
+          break;
+        }
+
         // Accumulate assistant text
         if (event.type === "text-delta") {
           assistantResponse += event.content;
@@ -66,9 +74,12 @@ api.post("/chat", async (c) => {
       }
     } catch (error) {
       const err = error as Error;
-      await stream.writeSSE({
-        data: JSON.stringify({ type: "error", message: err.message }),
-      });
+      // Don't send error for abort
+      if (err.name !== "AbortError" && !abortSignal?.aborted) {
+        await stream.writeSSE({
+          data: JSON.stringify({ type: "error", message: err.message }),
+        });
+      }
     }
   });
 });
