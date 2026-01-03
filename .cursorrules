@@ -1,5 +1,7 @@
 # Jot
 
+> **Note**: Keep this file up to date as you make changes to the codebase. Update structure, add new patterns, and document breaking changes.
+
 Personal AI assistant with full control over PostgreSQL (Neon) and object storage (Cloudflare R2). All responses are HTML—AI controls presentation.
 
 ## Tech Stack
