@@ -1,5 +1,5 @@
 import { streamText, tool, type CoreMessage } from "ai";
-import { anthropic } from "@ai-sdk/anthropic";
+import { openai } from "@ai-sdk/openai";
 import { z } from "zod";
 import { getSchema, getScratchpad, updateScratchpad } from "../db/client";
 import { executePython, endPythonSession } from "../python/executor";
@@ -373,7 +373,7 @@ export async function* chatStream(
 
   try {
     const result = streamText({
-      model: anthropic("claude-opus-4-5-20251101"),
+      model: openai("gpt-5.2"),
       system: SYSTEM_PROMPT + contextInjection,
       messages: coreMessages,
       tools,
