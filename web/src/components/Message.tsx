@@ -12,7 +12,7 @@ interface Props {
 export function Message({ message, isStreaming }: Props) {
   if (message.role === "user") {
     return (
-      <div className="self-end max-w-[85%] py-2 px-4 bg-bg-tertiary text-text-primary rounded-lg ml-auto text-[0.95rem] select-text animate-fade-in">
+      <div className="self-end max-w-[85%] py-2 px-4 bg-bg-tertiary text-text-primary rounded-lg ml-auto text-[0.95rem] select-text animate-fade-in whitespace-pre-wrap">
         {message.content}
       </div>
     );

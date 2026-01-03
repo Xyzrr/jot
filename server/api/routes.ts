@@ -29,10 +29,11 @@ api.post("/chat", async (c) => {
     return c.json({ error: "messages array required" }, 400);
   }
 
-  // Save the user's message (the last one in the array)
+  // Save the user's message (the last one in the array) BEFORE AI processing
+  // This ensures the AI can query it from the database if needed
   const userMessage = body.messages[body.messages.length - 1];
   if (userMessage?.role === "user") {
-    saveMessage("user", userMessage.content).catch(console.error);
+    await saveMessage("user", userMessage.content);
   }
 
   return streamSSE(c, async (stream) => {

@@ -20,11 +20,16 @@ Allows the agent to execute arbitrary Python code with access to:
 - `list_files(prefix='', max_keys=100)` - List files with optional prefix filter
 - `delete_file(key)` - Delete a file from R2
 
+### Embeddings (OpenAI)
+- `embed(text)` - Generate 1536-dim embedding for a single text
+- `embed_many(texts)` - Generate embeddings for multiple texts in batch (more efficient)
+
 ## Requirements
 
 The Python environment needs these packages installed:
 - `psycopg2-binary` - For PostgreSQL access
 - `boto3` - For R2/S3 access
+- `openai` - For embeddings
 
 Optional but useful:
 - `pandas` - For data analysis

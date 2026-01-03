@@ -102,6 +102,38 @@ except ImportError:
     def delete_file(key):
         raise ImportError("boto3 not installed. Run: pip install boto3")
 
+# OpenAI Embeddings
+try:
+    import openai
+    
+    _openai_client = None
+    def get_openai():
+        global _openai_client
+        if _openai_client is None:
+            api_key = os.environ.get('OPENAI_API_KEY')
+            if not api_key:
+                raise ValueError("OPENAI_API_KEY environment variable not set")
+            _openai_client = openai.OpenAI(api_key=api_key)
+        return _openai_client
+    
+    def embed(text, model="text-embedding-3-small"):
+        """Generate embedding for a single text. Returns a list of 1536 floats."""
+        response = get_openai().embeddings.create(input=text, model=model)
+        return response.data[0].embedding
+    
+    def embed_many(texts, model="text-embedding-3-small"):
+        """Generate embeddings for multiple texts. Returns list of embeddings in same order."""
+        response = get_openai().embeddings.create(input=texts, model=model)
+        # Sort by index to maintain order
+        sorted_data = sorted(response.data, key=lambda x: x.index)
+        return [item.embedding for item in sorted_data]
+
+except ImportError:
+    def embed(text, model="text-embedding-3-small"):
+        raise ImportError("openai not installed. Run: pip install openai")
+    def embed_many(texts, model="text-embedding-3-small"):
+        raise ImportError("openai not installed. Run: pip install openai")
+
 # Helper to format output for the agent
 def _format_result(result):
     """Format Python objects for JSON output."""
@@ -152,6 +184,7 @@ except Exception as e:
         R2_ACCESS_KEY_ID: config.r2.accessKeyId,
         R2_SECRET_ACCESS_KEY: config.r2.secretAccessKey,
         R2_BUCKET_NAME: config.r2.bucketName,
+        OPENAI_API_KEY: process.env.OPENAI_API_KEY || "",
         PYTHONUNBUFFERED: "1",
       };
 

@@ -15,13 +15,13 @@ function optional(key: string, defaultValue: string): string {
 export const config = {
   // Server
   port: parseInt(optional("PORT", "3000")),
-  
+
   // Anthropic
   anthropicApiKey: required("ANTHROPIC_API_KEY"),
-  
+
   // Neon PostgreSQL
   databaseUrl: required("DATABASE_URL"),
-  
+
   // Cloudflare R2
   r2: {
     accountId: required("R2_ACCOUNT_ID"),
@@ -31,4 +31,3 @@ export const config = {
     publicUrl: optional("R2_PUBLIC_URL", ""),
   },
 } as const;
-
