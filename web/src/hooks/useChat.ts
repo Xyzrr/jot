@@ -206,43 +206,14 @@ export function useChat() {
                   case "done": {
                     receivedDone = true;
                     // Finalize the messages in ModelMessage format
+                    // For multi-step tool use, we need to interleave assistant/tool messages
+                    // Each tool call must be immediately followed by its result
                     const newMessages: MessageWithId[] = [];
 
-                    // Extract text and tool calls for ModelMessage format
-                    let fullText = "";
-                    const toolCalls: Array<{
-                      toolCallId: string;
-                      toolName: string;
-                      args: unknown;
-                    }> = [];
-                    const toolResults: Array<{
-                      toolCallId: string;
-                      toolName: string;
-                      result: unknown;
-                    }> = [];
-
-                    for (const block of blocks) {
-                      if (block.type === "text") {
-                        fullText += block.content;
-                      } else if (block.type === "tool-call") {
-                        toolCalls.push({
-                          toolCallId: block.toolCallId,
-                          toolName: block.toolName,
-                          args: block.args,
-                        });
-                        if (block.result !== undefined) {
-                          toolResults.push({
-                            toolCallId: block.toolCallId,
-                            toolName: block.toolName,
-                            result: block.result,
-                          });
-                        }
-                      }
-                    }
-
-                    // Build assistant message content
-                    if (fullText || toolCalls.length > 0) {
-                      const assistantContent: Array<
+                    // Group blocks into "steps" - a new step starts after a tool-result
+                    // when we see more content (text or another tool-call)
+                    type Step = {
+                      content: Array<
                         | { type: "text"; text: string }
                         | {
                             type: "tool-call";
@@ -250,52 +221,95 @@ export function useChat() {
                             toolName: string;
                             input: unknown;
                           }
-                      > = [];
+                      >;
+                      toolResults: Array<{
+                        toolCallId: string;
+                        toolName: string;
+                        result: unknown;
+                      }>;
+                    };
 
-                      // Add parts in order from blocks
-                      for (const block of blocks) {
-                        if (block.type === "text") {
-                          assistantContent.push({
-                            type: "text",
-                            text: block.content,
-                          });
-                        } else if (block.type === "tool-call") {
-                          assistantContent.push({
-                            type: "tool-call",
+                    const steps: Step[] = [];
+                    let currentStep: Step = { content: [], toolResults: [] };
+                    let lastWasToolResult = false;
+
+                    for (const block of blocks) {
+                      if (block.type === "text") {
+                        // If we had tool results and now have new content, start new step
+                        if (
+                          lastWasToolResult &&
+                          currentStep.toolResults.length > 0
+                        ) {
+                          steps.push(currentStep);
+                          currentStep = { content: [], toolResults: [] };
+                        }
+                        currentStep.content.push({
+                          type: "text",
+                          text: block.content,
+                        });
+                        lastWasToolResult = false;
+                      } else if (block.type === "tool-call") {
+                        // If we had tool results and now have a new tool call, start new step
+                        if (
+                          lastWasToolResult &&
+                          currentStep.toolResults.length > 0
+                        ) {
+                          steps.push(currentStep);
+                          currentStep = { content: [], toolResults: [] };
+                        }
+                        currentStep.content.push({
+                          type: "tool-call",
+                          toolCallId: block.toolCallId,
+                          toolName: block.toolName,
+                          input: block.args,
+                        });
+                        if (block.result !== undefined) {
+                          currentStep.toolResults.push({
                             toolCallId: block.toolCallId,
                             toolName: block.toolName,
-                            input: block.args,
+                            result: block.result,
                           });
+                          lastWasToolResult = true;
                         }
                       }
-
-                      newMessages.push({
-                        id: assistantId,
-                        message: {
-                          role: "assistant",
-                          content:
-                            assistantContent.length === 1 &&
-                            assistantContent[0].type === "text"
-                              ? assistantContent[0].text
-                              : assistantContent,
-                        },
-                      });
                     }
 
-                    // Add tool results as separate tool message
-                    if (toolResults.length > 0) {
-                      newMessages.push({
-                        id: crypto.randomUUID(),
-                        message: {
-                          role: "tool",
-                          content: toolResults.map((tr) => ({
-                            type: "tool-result" as const,
-                            toolCallId: tr.toolCallId,
-                            toolName: tr.toolName,
-                            output: tr.result,
-                          })),
-                        } as ModelMessage,
-                      });
+                    // Don't forget the last step
+                    if (currentStep.content.length > 0) {
+                      steps.push(currentStep);
+                    }
+
+                    // Build messages from steps
+                    for (let i = 0; i < steps.length; i++) {
+                      const step = steps[i];
+                      if (step.content.length > 0) {
+                        newMessages.push({
+                          id: i === 0 ? assistantId : crypto.randomUUID(),
+                          message: {
+                            role: "assistant",
+                            content:
+                              step.content.length === 1 &&
+                              step.content[0].type === "text"
+                                ? step.content[0].text
+                                : step.content,
+                          },
+                        });
+                      }
+
+                      if (step.toolResults.length > 0) {
+                        newMessages.push({
+                          id: crypto.randomUUID(),
+                          message: {
+                            role: "tool",
+                            content: step.toolResults.map((tr) => ({
+                              type: "tool-result" as const,
+                              toolCallId: tr.toolCallId,
+                              toolName: tr.toolName,
+                              output: tr.result,
+                            })),
+                          } as ModelMessage,
+                        });
+                      }
                     }
 
                     setState((prev) => ({
