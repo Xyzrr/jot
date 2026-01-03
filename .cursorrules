@@ -1,0 +1,112 @@
+# Jot
+
+Personal AI assistant with full control over PostgreSQL (Neon) and object storage (Cloudflare R2). All responses are HTML—AI controls presentation.
+
+## Tech Stack
+
+- **Runtime**: Bun
+- **Server**: Hono
+- **Frontend**: React + Vite + TypeScript
+- **AI**: Vercel AI SDK 6 (`ai@^6.0.6`) with `@ai-sdk/anthropic`
+- **Database**: PostgreSQL (Neon) with pgvector
+- **Storage**: Cloudflare R2
+
+## Structure
+
+```
+jot/
+├── server/           # @jot/server
+│   ├── index.ts      # entry
+│   ├── config.ts     # env loader
+│   ├── ai/           # assistant, tools
+│   ├── api/          # routes
+│   ├── db/           # postgres client
+│   ├── python/       # Python code executor
+│   └── storage/      # r2 client
+├── web/              # @jot/web
+│   └── src/
+│       ├── hooks/useChat.ts      # chat state, SSE handling
+│       └── components/           # Message, ToolCall, etc.
+└── package.json      # workspace root
+```
+
+## Commands
+
+```bash
+bun install                        # install all
+bun run dev                        # run both
+bun --filter @jot/server dev       # server only
+bun --filter @jot/web dev          # web only
+```
+
+## AI SDK 6 Usage
+
+This project uses **Vercel AI SDK v6** which has breaking changes from v4/v5:
+
+### Imports
+
+```typescript
+import { streamText, stepCountIs, tool } from "ai";
+import { z } from "zod/v4"; // AI SDK 6 requires zod v4
+import { anthropic } from "@ai-sdk/anthropic";
+```
+
+### Tool Definitions
+
+```typescript
+const tools = {
+  my_tool: tool({
+    description: "...",
+    inputSchema: z.object({
+      // Note: inputSchema, not parameters
+      param: z.string().describe("Description"),
+    }),
+    execute: async ({ param }) => {
+      return { result: "..." };
+    },
+  }),
+};
+```
+
+### Streaming with Step Limits
+
+```typescript
+const result = streamText({
+  model: anthropic("claude-opus-4-5-20251101"),
+  system: "...",
+  messages,
+  tools,
+  stopWhen: stepCountIs(10), // Replaces maxSteps from older versions
+});
+
+for await (const event of result.fullStream) {
+  // Handle: text-delta, tool-call, tool-result, tool-input-start, tool-input-delta
+}
+```
+
+### ToolResultOutput Format
+
+In AI SDK 6, tool result outputs are structured objects:
+
+```typescript
+// Old (v4/v5): output was a plain string
+// New (v6): output is { type: "text", value: string }
+output: { type: "text" as const, value: "result string" }
+```
+
+## SSE Events
+
+`POST /api/chat` streams:
+
+- `text-delta` - content chunk
+- `tool-call` - tool invocation
+- `tool-call-streaming` - partial tool args (for code streaming)
+- `tool-result` - tool response
+- `done` / `error`
+
+## Key Files
+
+- `server/ai/assistant.ts` - system prompt, tools, streaming
+- `server/api/routes.ts` - HTTP endpoints
+- `web/src/hooks/useChat.ts` - chat state, SSE handling
+- `web/src/components/Message.tsx` - message rendering (HTML from AI)

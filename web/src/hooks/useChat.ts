@@ -1,8 +1,8 @@
 import { useState, useCallback, useRef } from "react";
-import type { CoreMessage } from "ai";
+import type { ModelMessage } from "ai";
 
 // Re-export for convenience
-export type { CoreMessage };
+export type { ModelMessage };
 
 // Block types for streaming display (preserves order)
 export type StreamingBlock =
@@ -15,10 +15,10 @@ export type StreamingBlock =
       result?: unknown;
     };
 
-// Local ID tracking for React keys (CoreMessage doesn't have IDs)
+// Local ID tracking for React keys (ModelMessage doesn't have IDs)
 export interface MessageWithId {
   id: string;
-  message: CoreMessage;
+  message: ModelMessage;
 }
 
 interface ChatState {
@@ -81,8 +81,10 @@ export function useChat() {
       };
 
       try {
-        // Convert to CoreMessage[] for the API
-        const apiMessages: CoreMessage[] = state.messages.map((m) => m.message);
+        // Convert to ModelMessage[] for the API
+        const apiMessages: ModelMessage[] = state.messages.map(
+          (m) => m.message
+        );
         apiMessages.push({ role: "user", content });
 
         const response = await fetch("/api/chat", {
@@ -117,6 +119,8 @@ export function useChat() {
             streamingBlocks: blocks,
           }));
         };
+
+        let receivedDone = false;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -200,7 +204,8 @@ export function useChat() {
                   }
 
                   case "done": {
-                    // Finalize the messages in CoreMessage format
+                    receivedDone = true;
+                    // Finalize the messages in ModelMessage format
                     const newMessages: MessageWithId[] = [];
 
                     // Extract text and tool calls for CoreMessage format
@@ -243,7 +248,7 @@ export function useChat() {
                             type: "tool-call";
                             toolCallId: string;
                             toolName: string;
-                            args: unknown;
+                            input: unknown;
                           }
                       > = [];
 
@@ -259,7 +264,7 @@ export function useChat() {
                             type: "tool-call",
                             toolCallId: block.toolCallId,
                             toolName: block.toolName,
-                            args: block.args,
+                            input: block.args,
                           });
                         }
                       }
@@ -287,9 +292,9 @@ export function useChat() {
                             type: "tool-result" as const,
                             toolCallId: tr.toolCallId,
                             toolName: tr.toolName,
-                            result: tr.result,
+                            output: tr.result,
                           })),
-                        },
+                        } as ModelMessage,
                       });
                     }
 
@@ -329,6 +334,42 @@ export function useChat() {
                 console.error("Failed to parse SSE:", data, e);
               }
             }
+          }
+        }
+
+        // If stream ended without a proper "done" event, show error
+        if (!receivedDone) {
+          const hasContent = blocks.some(
+            (b) => b.type === "text" && b.content.trim()
+          );
+          if (!hasContent) {
+            // No content at all - show a clear error
+            showError(
+              "No response received",
+              "The server closed the connection without sending a response. Check server logs for details."
+            );
+          } else {
+            // Had some content but ended abruptly - finalize what we have
+            setState((prev) => ({
+              ...prev,
+              messages: [
+                ...prev.messages,
+                {
+                  id: assistantId,
+                  message: {
+                    role: "assistant",
+                    content:
+                      blocks
+                        .filter((b) => b.type === "text")
+                        .map((b) => (b as { content: string }).content)
+                        .join("") +
+                      '<p style="color: var(--color-warning);">⚠️ Stream ended unexpectedly</p>',
+                  },
+                },
+              ],
+              isLoading: false,
+              streamingBlocks: [],
+            }));
           }
         }
       } catch (error) {

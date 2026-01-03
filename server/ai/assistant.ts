@@ -1,11 +1,18 @@
-import { streamText, tool, type CoreMessage, type ToolResultPart } from "ai";
-import { openai } from "@ai-sdk/openai";
-import { z } from "zod";
+import {
+  streamText,
+  stepCountIs,
+  tool,
+  type ModelMessage,
+  type ToolResultPart,
+  type ToolApprovalResponse,
+} from "ai";
+import { anthropic } from "@ai-sdk/anthropic";
+import { z } from "zod/v4";
 import { getSchema, getScratchpad, updateScratchpad } from "../db/client";
 import { executePython, endPythonSession } from "../python/executor";
 
-// Re-export CoreMessage for use by routes
-export type { CoreMessage };
+// Re-export ModelMessage for use by routes
+export type { ModelMessage };
 
 // System prompt
 const SYSTEM_PROMPT = `You are Jot, a highly capable AI assistant that serves as a personal knowledge and life management system. You have direct access to:
@@ -178,10 +185,10 @@ results = query("SELECT * FROM entries LIMIT 10")
 df = pd.DataFrame(results)
 print(df.describe().to_string())
 \`\`\``,
-    parameters: z.object({
+    inputSchema: z.object({
       code: z.string().describe("The Python code to execute"),
     }),
-    execute: async ({ code }) => {
+    execute: async ({ code }: { code: string }) => {
       return await executePython(code);
     },
   }),
@@ -196,14 +203,14 @@ Use this to document:
 - Patterns or conventions you're following
 
 This completely replaces the previous scratchpad content, so include everything you want to remember.`,
-    parameters: z.object({
+    inputSchema: z.object({
       content: z
         .string()
         .describe(
           "The full scratchpad content (replaces existing content entirely)"
         ),
     }),
-    execute: async ({ content }) => {
+    execute: async ({ content }: { content: string }) => {
       await updateScratchpad(content);
       return { success: true, message: "Scratchpad updated" };
     },
@@ -255,15 +262,29 @@ function truncateResult(result: unknown, maxLength = 8000): string {
 }
 
 // Truncate tool results in messages before sending to model
-function truncateToolResults(messages: CoreMessage[]): CoreMessage[] {
+function truncateToolResults(messages: ModelMessage[]): ModelMessage[] {
   return messages.map((msg) => {
     if (msg.role === "tool") {
       return {
         ...msg,
-        content: msg.content.map((part: ToolResultPart) => ({
-          ...part,
-          result: truncateResult(part.result),
-        })),
+        content: msg.content.map((part: ToolResultPart | ToolApprovalResponse) => {
+          // Skip ToolApprovalResponse parts
+          if (!("output" in part)) {
+            return part;
+          }
+          const toolPart = part as ToolResultPart;
+          // Handle both old string format and new ToolResultOutput format
+          const outputValue =
+            typeof toolPart.output === "string"
+              ? toolPart.output
+              : toolPart.output.type === "text"
+                ? toolPart.output.value
+                : JSON.stringify(toolPart.output);
+          return {
+            ...toolPart,
+            output: { type: "text" as const, value: truncateResult(outputValue) },
+          };
+        }),
       };
     }
     return msg;
@@ -286,18 +307,19 @@ export type StreamEvent =
 
 // Main streaming chat function
 export async function* chatStream(
-  messages: CoreMessage[]
+  messages: ModelMessage[]
 ): AsyncGenerator<StreamEvent> {
   const contextInjection = await getContextInjection();
 
+  let hasYieldedContent = false;
+
   try {
     const result = streamText({
-      model: openai("gpt-5.2"),
+      model: anthropic("claude-opus-4-5-20251101"),
       system: SYSTEM_PROMPT + contextInjection,
       messages: truncateToolResults(messages),
       tools,
-      maxSteps: 10, // Allow multiple tool calls in sequence
-      experimental_toolCallStreaming: true, // Enable streaming of tool call arguments
+      stopWhen: stepCountIs(10), // Allow multiple tool calls in sequence
     });
 
     // Track which tool calls are for code execution (to stream their args)
@@ -306,13 +328,14 @@ export async function* chatStream(
     for await (const event of result.fullStream) {
       switch (event.type) {
         case "text-delta":
-          yield { type: "text-delta", content: event.textDelta };
+          hasYieldedContent = true;
+          yield { type: "text-delta", content: event.text };
           break;
 
-        case "tool-call-streaming-start":
+        case "tool-input-start":
           // Start tracking this tool call if it's execute_python
           if (event.toolName === "execute_python") {
-            streamingToolCalls.set(event.toolCallId, "");
+            streamingToolCalls.set(event.id, "");
             // Emit immediately so client shows streaming UI right away
             yield {
               type: "tool-call-streaming",
@@ -322,12 +345,12 @@ export async function* chatStream(
           }
           break;
 
-        case "tool-call-delta":
+        case "tool-input-delta":
           // Stream partial args for execute_python tool
-          if (streamingToolCalls.has(event.toolCallId)) {
-            const currentArgs = streamingToolCalls.get(event.toolCallId) || "";
-            const newArgs = currentArgs + event.argsTextDelta;
-            streamingToolCalls.set(event.toolCallId, newArgs);
+          if (streamingToolCalls.has(event.id)) {
+            const currentArgs = streamingToolCalls.get(event.id) || "";
+            const newArgs = currentArgs + event.delta;
+            streamingToolCalls.set(event.id, newArgs);
             yield {
               type: "tool-call-streaming",
               toolName: "execute_python",
@@ -337,13 +360,14 @@ export async function* chatStream(
           break;
 
         case "tool-call":
+          hasYieldedContent = true;
           // Clear streaming state when tool call is complete
           streamingToolCalls.delete(event.toolCallId);
           yield {
             type: "tool-call",
             toolCallId: event.toolCallId,
             toolName: event.toolName,
-            args: event.args,
+            args: event.input,
           };
           break;
 
@@ -352,15 +376,26 @@ export async function* chatStream(
             type: "tool-result",
             toolCallId: event.toolCallId,
             toolName: event.toolName,
-            result: event.result,
+            result: event.output,
           };
           break;
       }
     }
 
+    // If the model returned nothing, let the user know
+    if (!hasYieldedContent) {
+      console.error("[chatStream] Model returned no content");
+      yield {
+        type: "error",
+        message:
+          "Model returned empty response. This may be due to API configuration issues or the model rejecting the request.",
+      };
+    }
+
     yield { type: "done" };
   } catch (error) {
     const err = error as Error;
+    console.error("[chatStream] Error:", err.message, err.stack);
     yield { type: "error", message: err.message };
   } finally {
     // Clean up the Python session at the end of each turn

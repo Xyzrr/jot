@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
-import { chatStream, type CoreMessage } from "../ai/assistant";
+import { chatStream, type ModelMessage } from "../ai/assistant";
 import {
   checkConnection,
   getSchema,
@@ -28,7 +28,7 @@ api.get("/health", async (c) => {
 // Streaming chat endpoint using SSE
 // This is the main endpoint - everything streams
 api.post("/chat", async (c) => {
-  const body = await c.req.json<{ messages: CoreMessage[] }>();
+  const body = await c.req.json<{ messages: ModelMessage[] }>();
 
   if (!body.messages || !Array.isArray(body.messages)) {
     return c.json({ error: "messages array required" }, 400);
