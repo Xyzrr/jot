@@ -79,10 +79,11 @@ export function Chat() {
   const handleInput = () => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${Math.min(
-        textareaRef.current.scrollHeight,
-        150
-      )}px`;
+      const newHeight = Math.min(textareaRef.current.scrollHeight, 150);
+      textareaRef.current.style.height = `${newHeight}px`;
+      // Only show scrollbar when at max height
+      textareaRef.current.style.overflowY =
+        textareaRef.current.scrollHeight > 150 ? "auto" : "hidden";
     }
   };
 
@@ -99,10 +100,12 @@ export function Chat() {
   for (const msg of messages) {
     if (msg.message.role === "tool") {
       for (const part of msg.message.content) {
-        toolResultsMap.set(part.toolCallId, {
-          toolName: part.toolName,
-          result: part.output,
-        });
+        if (part.type === "tool-result") {
+          toolResultsMap.set(part.toolCallId, {
+            toolName: part.toolName,
+            result: part.output,
+          });
+        }
       }
     }
   }
@@ -214,13 +217,13 @@ export function Chat() {
             placeholder="..."
             rows={1}
             autoFocus
-            className="flex-1 bg-transparent border-none text-text-primary font-sans text-base py-2 px-4 resize-none max-h-[150px] leading-relaxed tracking-tight select-text focus:outline-none placeholder:text-text-muted"
+            className="flex-1 bg-transparent border-none text-text-primary font-sans text-base py-2 px-4 resize-none max-h-[150px] leading-relaxed tracking-tight select-text focus:outline-none placeholder:text-text-muted overflow-hidden"
           />
           {isLoading ? (
             <button
               type="button"
               onClick={stopGeneration}
-              className="w-9 h-9 rounded border-none cursor-pointer flex items-center justify-center transition-all bg-transparent text-text-muted hover:text-error"
+              className="w-9 h-9 mb-0.5 rounded border-none cursor-pointer flex items-center justify-center transition-all bg-transparent text-text-muted hover:text-error"
               title="Stop generating"
             >
               <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
@@ -230,7 +233,7 @@ export function Chat() {
           ) : (
             <button
               type="submit"
-              className="w-9 h-9 rounded border-none cursor-pointer flex items-center justify-center transition-all bg-transparent text-text-muted disabled:opacity-30 disabled:cursor-not-allowed hover:enabled:text-text-primary"
+              className="w-9 h-9 mb-0.5 rounded border-none cursor-pointer flex items-center justify-center transition-all bg-transparent text-text-muted disabled:opacity-30 disabled:cursor-not-allowed hover:enabled:text-text-primary"
               disabled={!input.trim()}
             >
               <svg
