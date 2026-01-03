@@ -8,14 +8,14 @@ interface Props {
 export function ToolResult({ toolName, result }: Props) {
   const [expanded, setExpanded] = useState(true);
   const isPython = toolName === "execute_python";
-  
-  const resultObj = result as { 
-    success?: boolean; 
-    output?: string; 
+
+  const resultObj = result as {
+    success?: boolean;
+    output?: string;
     error?: string;
     images?: string[];
   };
-  
+
   const success = resultObj?.success !== false;
   const output = resultObj?.output || "";
   const error = resultObj?.error || "";
@@ -28,8 +28,10 @@ export function ToolResult({ toolName, result }: Props) {
   return (
     <div className="tool-result-block">
       {/* Status header - consistent style */}
-      <div 
-        className={`flex items-center gap-2 px-4 py-2 text-text-muted ${hasOutput ? "cursor-pointer select-none hover:bg-bg-tertiary" : ""}`}
+      <div
+        className={`flex items-center gap-2 px-4 py-2 text-text-muted ${
+          hasOutput ? "cursor-pointer select-none hover:bg-bg-tertiary" : ""
+        }`}
         onClick={() => hasOutput && setExpanded(!expanded)}
       >
         <span className="flex items-center gap-2 text-[11px] tracking-wide uppercase">
@@ -57,11 +59,11 @@ export function ToolResult({ toolName, result }: Props) {
             </pre>
           )}
           {images.map((img, i) => (
-            <img 
-              key={i} 
-              src={img} 
-              alt="Output" 
-              className="max-w-full rounded mt-2" 
+            <img
+              key={i}
+              src={img}
+              alt="Output"
+              className="max-w-full rounded mt-2"
             />
           ))}
         </div>
