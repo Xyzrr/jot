@@ -241,17 +241,124 @@ async function getContextInjection(): Promise<string> {
   return context;
 }
 
+export type Block =
+  | { type: "text"; content: string }
+  | { type: "tool-call"; toolCallId: string; toolName: string; args: unknown }
+  | { type: "tool-call-streaming"; toolName: string; partialArgs: string }
+  | {
+      type: "tool-result";
+      toolCallId: string;
+      toolName: string;
+      result: unknown;
+    };
+
 export interface Message {
   role: "user" | "assistant";
   content: string;
+  blocks?: Block[];
+}
+
+// Truncate large tool results to avoid blowing up context window
+function truncateResult(result: unknown, maxLength = 8000): string {
+  const str = typeof result === "string" ? result : JSON.stringify(result);
+  if (str.length <= maxLength) return str;
+  return (
+    str.slice(0, maxLength) +
+    `\n... [truncated, ${str.length - maxLength} more characters]`
+  );
+}
+
+// Convert our Message format to AI SDK CoreMessage format
+function convertToCoreMessages(messages: Message[]): CoreMessage[] {
+  const coreMessages: CoreMessage[] = [];
+
+  for (const msg of messages) {
+    if (msg.role === "user") {
+      // User messages are simple
+      coreMessages.push({ role: "user", content: msg.content });
+    } else if (msg.role === "assistant") {
+      // Check if this assistant message has tool calls
+      const toolCalls = msg.blocks?.filter((b) => b.type === "tool-call") as
+        | {
+            type: "tool-call";
+            toolCallId: string;
+            toolName: string;
+            args: unknown;
+          }[]
+        | undefined;
+      const toolResults = msg.blocks?.filter(
+        (b) => b.type === "tool-result"
+      ) as
+        | {
+            type: "tool-result";
+            toolCallId: string;
+            toolName: string;
+            result: unknown;
+          }[]
+        | undefined;
+
+      if (toolCalls && toolCalls.length > 0) {
+        // Assistant message with tool calls
+        const content: Array<
+          | { type: "text"; text: string }
+          | {
+              type: "tool-call";
+              toolCallId: string;
+              toolName: string;
+              args: unknown;
+            }
+        > = [];
+
+        // Add text content if present
+        if (msg.content) {
+          content.push({ type: "text", text: msg.content });
+        }
+
+        // Add tool calls
+        for (const tc of toolCalls) {
+          content.push({
+            type: "tool-call",
+            toolCallId: tc.toolCallId,
+            toolName: tc.toolName,
+            args: tc.args,
+          });
+        }
+
+        coreMessages.push({ role: "assistant", content });
+
+        // Add tool results as separate tool messages
+        if (toolResults && toolResults.length > 0) {
+          coreMessages.push({
+            role: "tool",
+            content: toolResults.map((tr) => ({
+              type: "tool-result" as const,
+              toolCallId: tr.toolCallId,
+              toolName: tr.toolName,
+              result: truncateResult(tr.result),
+            })),
+          });
+        }
+      } else {
+        // Simple assistant message without tool calls
+        coreMessages.push({ role: "assistant", content: msg.content });
+      }
+    }
+  }
+
+  return coreMessages;
 }
 
 // Stream events that get sent to the client
 export type StreamEvent =
   | { type: "text-delta"; content: string }
-  | { type: "tool-call"; toolName: string; args: unknown }
+  | { type: "tool-call"; toolCallId: string; toolName: string; args: unknown }
   | { type: "tool-call-streaming"; toolName: string; partialArgs: string }
-  | { type: "tool-result"; toolName: string; result: unknown }
+  | {
+      type: "tool-result";
+      toolCallId: string;
+      toolName: string;
+      result: unknown;
+    }
   | { type: "done" }
   | { type: "error"; message: string };
 
@@ -261,11 +368,8 @@ export async function* chatStream(
 ): AsyncGenerator<StreamEvent> {
   const contextInjection = await getContextInjection();
 
-  // Convert to AI SDK message format
-  const coreMessages: CoreMessage[] = messages.map((m) => ({
-    role: m.role,
-    content: m.content,
-  }));
+  // Convert to AI SDK message format (including tool calls and results)
+  const coreMessages = convertToCoreMessages(messages);
 
   try {
     const result = streamText({
@@ -318,6 +422,7 @@ export async function* chatStream(
           streamingToolCalls.delete(event.toolCallId);
           yield {
             type: "tool-call",
+            toolCallId: event.toolCallId,
             toolName: event.toolName,
             args: event.args,
           };
@@ -326,6 +431,7 @@ export async function* chatStream(
         case "tool-result":
           yield {
             type: "tool-result",
+            toolCallId: event.toolCallId,
             toolName: event.toolName,
             result: event.result,
           };

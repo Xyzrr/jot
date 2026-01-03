@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { PythonHighlight } from "./PythonHighlight";
 
 interface Props {
   toolName: string;
@@ -7,45 +7,52 @@ interface Props {
 }
 
 export function ToolCall({ toolName, args, hasResult }: Props) {
-  const [collapsed, setCollapsed] = useState(false);
-
   const isPython = toolName === "execute_python";
   const isScratchpad = toolName === "update_scratchpad";
 
-  // Extract content for display
-  const displayContent = isPython
-    ? (args as { code?: string })?.code
+  const code = isPython
+    ? (args as { code?: string })?.code || ""
     : isScratchpad
-      ? (args as { content?: string })?.content
+      ? (args as { content?: string })?.content || ""
       : JSON.stringify(args, null, 2);
 
-  const icon = isPython ? "🐍" : isScratchpad ? "📝" : "⚡";
-  const label = isPython ? "Python" : isScratchpad ? "Scratchpad" : toolName;
+  // Determine status
+  const getStatus = () => {
+    if (isPython) {
+      return hasResult ? null : { label: "running", color: "bg-accent-secondary" };
+    }
+    if (isScratchpad) {
+      return hasResult ? null : { label: "saving", color: "bg-accent-tertiary" };
+    }
+    return hasResult 
+      ? null 
+      : { label: toolName, color: "bg-text-muted" };
+  };
+
+  const status = getStatus();
 
   return (
-    <div className="bg-bg-secondary border border-border rounded-lg overflow-hidden text-[0.85rem]">
-      <div
-        className="flex items-center gap-2 py-2 px-4 cursor-pointer select-none transition-colors hover:bg-bg-tertiary"
-        onClick={() => setCollapsed(!collapsed)}
-      >
-        <span className="text-[0.9rem] text-accent-secondary">{icon}</span>
-        <span className="font-mono font-normal text-xs text-text-secondary">
-          {label}
-        </span>
-        {isPython && !hasResult && (
-          <span className="ml-auto text-[0.7rem] text-text-muted tracking-wide flex items-center gap-1.5">
-            executing
-            <span className="w-1 h-1 rounded-full bg-text-muted animate-breathe" />
+    <div className={`tool-call-block ${hasResult ? "has-result" : ""}`}>
+      {/* Status header */}
+      {status && (
+        <div className="flex items-center gap-2 px-4 py-2 text-text-muted">
+          <span className="flex items-center gap-2 text-[11px] tracking-wide uppercase">
+            <span className={`w-1.5 h-1.5 rounded-full ${status.color} animate-breathe`} />
+            {status.label}
           </span>
+        </div>
+      )}
+
+      {/* Code content */}
+      <div className={`px-4 pb-4 select-text ${!status ? "pt-4" : ""}`}>
+        {isPython ? (
+          <PythonHighlight code={code} />
+        ) : (
+          <pre className="m-0 font-mono text-[13px] leading-[1.6] text-text-secondary whitespace-pre-wrap">
+            {code}
+          </pre>
         )}
       </div>
-      <pre
-        className={`m-0 p-4 font-mono text-xs text-text-muted bg-bg-primary border-t border-border overflow-x-auto max-h-40 overflow-y-auto whitespace-pre-wrap break-words select-text ${
-          collapsed ? "hidden" : ""
-        }`}
-      >
-        {displayContent}
-      </pre>
     </div>
   );
 }

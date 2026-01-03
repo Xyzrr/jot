@@ -9,9 +9,9 @@ export interface Message {
 
 export type Block =
   | { type: "text"; content: string }
-  | { type: "tool-call"; toolName: string; args: unknown }
+  | { type: "tool-call"; toolCallId: string; toolName: string; args: unknown }
   | { type: "tool-call-streaming"; toolName: string; partialArgs: string }
-  | { type: "tool-result"; toolName: string; result: unknown };
+  | { type: "tool-result"; toolCallId: string; toolName: string; result: unknown };
 
 interface ChatState {
   messages: Message[];
@@ -77,7 +77,7 @@ export function useChat() {
           body: JSON.stringify({
             messages: [...state.messages, userMessage]
               .filter((m) => m.role === "user" || m.role === "assistant")
-              .map((m) => ({ role: m.role, content: m.content })),
+              .map((m) => ({ role: m.role, content: m.content, blocks: m.blocks })),
           }),
           signal: abortControllerRef.current.signal,
         });
@@ -192,6 +192,7 @@ export function useChat() {
                         ...blocks.slice(0, -1),
                         {
                           type: "tool-call",
+                          toolCallId: event.toolCallId,
                           toolName: event.toolName,
                           args: event.args,
                         },
@@ -201,6 +202,7 @@ export function useChat() {
                         ...blocks,
                         {
                           type: "tool-call",
+                          toolCallId: event.toolCallId,
                           toolName: event.toolName,
                           args: event.args,
                         },
@@ -215,6 +217,7 @@ export function useChat() {
                       ...blocks,
                       {
                         type: "tool-result",
+                        toolCallId: event.toolCallId,
                         toolName: event.toolName,
                         result: event.result,
                       },

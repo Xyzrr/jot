@@ -50,20 +50,36 @@ function AssistantMessage({ message, isStreaming }: Props) {
     }
   }, [isStreaming, message.content]);
 
+  // Group tool calls with their results
+  const groupedBlocks = groupToolBlocks(message.blocks);
+
   return (
-    <div className="flex flex-col gap-2 animate-fade-in group">
+    <div className="flex flex-col gap-4 animate-fade-in group">
       <div className="flex flex-col gap-4" ref={contentRef}>
-        {message.blocks.map((block, i) => (
-          <BlockRenderer
-            key={i}
-            block={block}
-            nextBlock={message.blocks[i + 1]}
-          />
-        ))}
+        {groupedBlocks.map((item, i) => {
+          if (item.type === "tool-group") {
+            return (
+              <div key={i} className="tool-group">
+                <ToolCall
+                  toolName={item.call.toolName}
+                  args={item.call.args}
+                  hasResult={!!item.result}
+                />
+                {item.result && (
+                  <ToolResult
+                    toolName={item.result.toolName}
+                    result={item.result.result}
+                  />
+                )}
+              </div>
+            );
+          }
+          return <BlockRenderer key={i} block={item.block} />;
+        })}
       </div>
 
       {isStreaming && (
-        <div className="w-1 h-1 bg-text-muted rounded-full opacity-0 animate-breathe mt-2" />
+        <div className="w-1.5 h-1.5 bg-text-muted rounded-full opacity-0 animate-breathe" />
       )}
 
       {showCode && (
@@ -74,7 +90,7 @@ function AssistantMessage({ message, isStreaming }: Props) {
         </div>
       )}
 
-      <div className="flex gap-0.5 mt-2 opacity-0 transition-opacity group-hover:opacity-100">
+      <div className="flex gap-0.5 mt-1 opacity-0 transition-opacity group-hover:opacity-100">
         <button
           className={`flex items-center justify-center w-6 h-6 p-0 bg-transparent border-none cursor-pointer rounded transition-colors ${
             showCode
@@ -122,33 +138,56 @@ function AssistantMessage({ message, isStreaming }: Props) {
   );
 }
 
-function BlockRenderer({
-  block,
-  nextBlock,
-}: {
-  block: Block;
-  nextBlock?: Block;
-}) {
+type GroupedItem = 
+  | { type: "tool-group"; call: Extract<Block, { type: "tool-call" }>; result?: Extract<Block, { type: "tool-result" }> }
+  | { type: "block"; block: Block };
+
+function groupToolBlocks(blocks: Block[]): GroupedItem[] {
+  const result: GroupedItem[] = [];
+  let i = 0;
+
+  while (i < blocks.length) {
+    const block = blocks[i];
+
+    if (block.type === "tool-call") {
+      const nextBlock = blocks[i + 1];
+      // Check if next block is the matching result
+      if (nextBlock?.type === "tool-result" && nextBlock.toolCallId === block.toolCallId) {
+        result.push({
+          type: "tool-group",
+          call: block,
+          result: nextBlock,
+        });
+        i += 2;
+      } else {
+        // Tool call without result yet
+        result.push({
+          type: "tool-group",
+          call: block,
+        });
+        i += 1;
+      }
+    } else if (block.type === "tool-result") {
+      // Orphan result (shouldn't happen but handle gracefully)
+      result.push({ type: "block", block });
+      i += 1;
+    } else {
+      result.push({ type: "block", block });
+      i += 1;
+    }
+  }
+
+  return result;
+}
+
+function BlockRenderer({ block }: { block: Block }) {
   switch (block.type) {
     case "text":
       return <TextBlock content={block.content} />;
-    case "tool-call": {
-      // Check if the next block is the result for this tool call
-      const hasResult =
-        nextBlock?.type === "tool-result" &&
-        nextBlock.toolName === block.toolName;
-      return (
-        <ToolCall
-          toolName={block.toolName}
-          args={block.args}
-          hasResult={hasResult}
-        />
-      );
-    }
     case "tool-call-streaming":
       return <CodeStreaming partialArgs={block.partialArgs} />;
-    case "tool-result":
-      return <ToolResult toolName={block.toolName} result={block.result} />;
+    default:
+      return null;
   }
 }
 

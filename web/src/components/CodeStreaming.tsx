@@ -1,11 +1,12 @@
 import { useRef, useEffect } from "react";
+import { PythonHighlight } from "./PythonHighlight";
 
 interface Props {
   partialArgs: string;
 }
 
 export function CodeStreaming({ partialArgs }: Props) {
-  const codeRef = useRef<HTMLPreElement>(null);
+  const codeRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom as code streams in
   useEffect(() => {
@@ -43,28 +44,26 @@ export function CodeStreaming({ partialArgs }: Props) {
   const hasCode = code.trim().length > 0;
 
   return (
-    <div className="bg-bg-secondary border border-border rounded-lg overflow-hidden text-[0.85rem]">
-      <div className="flex items-center gap-2 py-2 px-4">
-        <span className="text-[0.9rem] text-accent-secondary">🐍</span>
-        <span className="font-mono text-xs text-text-secondary flex-1">
-          {hasCode ? "Python" : "Generating Python code"}
+    <div className="tool-call-block">
+      {/* Status header - consistent with ToolCall */}
+      <div className="flex items-center gap-2 px-4 py-2 text-text-muted">
+        <span className="flex items-center gap-2 text-[11px] tracking-wide uppercase">
+          <span className="w-1.5 h-1.5 rounded-full bg-accent-tertiary animate-breathe" />
+          writing
         </span>
-        <span className="w-1 h-1 rounded-full bg-text-muted animate-breathe" />
       </div>
-      {hasCode ? (
-        <pre
-          className="m-0 p-4 font-mono text-sm text-text-secondary bg-bg-primary border-t border-border overflow-x-auto max-h-80 overflow-y-auto whitespace-pre-wrap break-words leading-relaxed select-text"
-          ref={codeRef}
-        >
-          <code className="bg-transparent p-0">{code}</code>
-        </pre>
-      ) : (
-        <div className="p-4 border-t border-border bg-bg-primary">
-          <div className="flex items-center gap-2 text-text-muted text-xs">
-            <span className="font-mono">preparing...</span>
-          </div>
-        </div>
-      )}
+
+      {/* Code content */}
+      <div
+        className="p-4 pt-0 select-text max-h-80 overflow-y-auto"
+        ref={codeRef}
+      >
+        {hasCode ? (
+          <PythonHighlight code={code} />
+        ) : (
+          <span className="font-mono text-[13px] text-text-muted">...</span>
+        )}
+      </div>
     </div>
   );
 }
