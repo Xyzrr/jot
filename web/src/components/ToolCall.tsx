@@ -9,12 +9,18 @@ interface Props {
 export function ToolCall({ toolName, args, hasResult }: Props) {
   const [collapsed, setCollapsed] = useState(false);
 
-  // Special handling for execute_python to show code nicely
   const isPython = toolName === "execute_python";
-  const pythonCode =
-    isPython && args && typeof args === "object" && "code" in args
-      ? (args as { code: string }).code
-      : null;
+  const isScratchpad = toolName === "update_scratchpad";
+
+  // Extract content for display
+  const displayContent = isPython
+    ? (args as { code?: string })?.code
+    : isScratchpad
+      ? (args as { content?: string })?.content
+      : JSON.stringify(args, null, 2);
+
+  const icon = isPython ? "🐍" : isScratchpad ? "📝" : "⚡";
+  const label = isPython ? "Python" : isScratchpad ? "Scratchpad" : toolName;
 
   return (
     <div className="bg-bg-secondary border border-border rounded-lg overflow-hidden text-[0.85rem]">
@@ -22,15 +28,9 @@ export function ToolCall({ toolName, args, hasResult }: Props) {
         className="flex items-center gap-2 py-2 px-4 cursor-pointer select-none transition-colors hover:bg-bg-tertiary"
         onClick={() => setCollapsed(!collapsed)}
       >
-        <span
-          className={`text-[0.9rem] ${
-            isPython ? "text-accent-secondary" : "text-text-muted"
-          }`}
-        >
-          {isPython ? "🐍" : "⚡"}
-        </span>
+        <span className="text-[0.9rem] text-accent-secondary">{icon}</span>
         <span className="font-mono font-normal text-xs text-text-secondary">
-          {isPython ? "Python" : toolName}
+          {label}
         </span>
         {isPython && !hasResult && (
           <span className="ml-auto text-[0.7rem] text-text-muted tracking-wide flex items-center gap-1.5">
@@ -44,7 +44,7 @@ export function ToolCall({ toolName, args, hasResult }: Props) {
           collapsed ? "hidden" : ""
         }`}
       >
-        {pythonCode ?? JSON.stringify(args, null, 2)}
+        {displayContent}
       </pre>
     </div>
   );

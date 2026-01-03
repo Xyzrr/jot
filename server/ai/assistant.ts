@@ -1,20 +1,7 @@
 import { streamText, tool, type CoreMessage } from "ai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
-import {
-  executeSQL,
-  getSchema,
-  getScratchpad,
-  updateScratchpad,
-} from "../db/client";
-import {
-  uploadFile,
-  getFile,
-  deleteFile,
-  listFiles,
-  getUploadUrl,
-  getDownloadUrl,
-} from "../storage/r2";
+import { getSchema, getScratchpad, updateScratchpad } from "../db/client";
 import { executePython, endPythonSession } from "../python/executor";
 
 // System prompt
@@ -156,150 +143,26 @@ Check the database schema at conversation start to understand what structures ex
 
 // Tool definitions using Zod schemas
 const tools = {
-  execute_sql: tool({
-    description: `Execute arbitrary SQL against the PostgreSQL database. You have FULL control - create tables, insert data, query, update, delete, run migrations. The database uses Neon PostgreSQL with time-travel, so feel free to experiment.
-
-Best practices:
-- Create indexes for frequently queried columns
-- Use JSONB for flexible/nested data
-- Add timestamps (created_at, updated_at) to tables
-- Don't delete data unless explicitly asked - prefer soft deletes`,
-    parameters: z.object({
-      query: z.string().describe("The SQL query to execute"),
-      params: z
-        .array(z.any())
-        .optional()
-        .describe("Optional parameters for parameterized queries"),
-    }),
-    execute: async ({ query, params }) => {
-      return await executeSQL(query, params ?? []);
-    },
-  }),
-
-  get_database_schema: tool({
-    description:
-      "Get the current database schema - all tables and their columns. Use this to understand what data structures exist.",
-    parameters: z.object({}),
-    execute: async () => {
-      return await getSchema();
-    },
-  }),
-
-  upload_file: tool({
-    description:
-      "Upload a file to Cloudflare R2 object storage. Use for storing images, voice recordings, documents, or any binary data.",
-    parameters: z.object({
-      key: z
-        .string()
-        .describe(
-          "The storage key/path for the file (e.g., 'voice/2024-01-15/recording.webm')"
-        ),
-      content: z.string().describe("Base64-encoded file content"),
-      contentType: z.string().describe("MIME type of the file"),
-      metadata: z
-        .record(z.string())
-        .optional()
-        .describe("Optional metadata key-value pairs"),
-    }),
-    execute: async ({ key, content, contentType, metadata }) => {
-      const buffer = Buffer.from(content, "base64");
-      return await uploadFile(key, buffer, contentType, metadata);
-    },
-  }),
-
-  get_file: tool({
-    description: "Retrieve a file from R2 storage by its key.",
-    parameters: z.object({
-      key: z.string().describe("The storage key/path of the file"),
-    }),
-    execute: async ({ key }) => {
-      const result = await getFile(key);
-      if (result.success && result.data) {
-        return {
-          ...result,
-          data: Buffer.from(result.data).toString("base64"),
-        };
-      }
-      return result;
-    },
-  }),
-
-  delete_file: tool({
-    description: "Delete a file from R2 storage.",
-    parameters: z.object({
-      key: z.string().describe("The storage key/path of the file to delete"),
-    }),
-    execute: async ({ key }) => {
-      return await deleteFile(key);
-    },
-  }),
-
-  list_files: tool({
-    description: "List files in R2 storage, optionally filtered by prefix.",
-    parameters: z.object({
-      prefix: z
-        .string()
-        .optional()
-        .describe(
-          "Optional prefix to filter files (e.g., 'voice/' for all voice recordings)"
-        ),
-      maxKeys: z
-        .number()
-        .optional()
-        .describe("Maximum number of files to return (default 100)"),
-    }),
-    execute: async ({ prefix, maxKeys }) => {
-      return await listFiles(prefix, maxKeys);
-    },
-  }),
-
-  get_upload_url: tool({
-    description:
-      "Generate a presigned URL for direct file upload. Useful for large files or client-side uploads.",
-    parameters: z.object({
-      key: z.string().describe("The storage key/path for the file"),
-      contentType: z.string().describe("MIME type of the file"),
-      expiresIn: z
-        .number()
-        .optional()
-        .describe("URL expiration time in seconds (default 3600)"),
-    }),
-    execute: async ({ key, contentType, expiresIn }) => {
-      return await getUploadUrl(key, contentType, expiresIn);
-    },
-  }),
-
-  get_download_url: tool({
-    description: "Generate a presigned URL for file download.",
-    parameters: z.object({
-      key: z.string().describe("The storage key/path of the file"),
-      expiresIn: z
-        .number()
-        .optional()
-        .describe("URL expiration time in seconds (default 3600)"),
-    }),
-    execute: async ({ key, expiresIn }) => {
-      return await getDownloadUrl(key, expiresIn);
-    },
-  }),
-
   execute_python: tool({
-    description: `Execute arbitrary Python code with full access to the database and R2 storage. Use this for:
-- Complex data analysis and processing
-- Mathematical computations
-- Data transformations
-- Generating visualizations (output as base64 images)
-- Any logic that's easier in Python than SQL
+    description: `Execute arbitrary Python code with full access to the database and R2 storage. This is your primary tool for all data operations - use it instead of separate SQL or file tools.
 
 **Variables persist within a turn**: You can define variables in one Python execution and use them in subsequent executions within the same turn. This is like a Jupyter notebook - state accumulates.
 
 Available functions in the Python environment:
+
+**Database:**
 - query(sql, params=None) - Execute SQL and return results as list of dicts
 - execute(sql, params=None) - Execute SQL statement (INSERT/UPDATE/DELETE)
-- upload_file(key, data, content_type=None) - Upload to R2
+
+**R2 Storage:**
+- upload_file(key, data, content_type=None) - Upload bytes/string to R2
 - download_file(key) - Download from R2 (returns bytes)
 - list_files(prefix='', max_keys=100) - List R2 files
 - delete_file(key) - Delete from R2
+- get_upload_url(key, content_type, expires_in=3600) - Generate presigned upload URL
+- get_download_url(key, expires_in=3600) - Generate presigned download URL
+
+**Embeddings:**
 - embed(text) - Generate 1536-dim embedding for text (OpenAI text-embedding-3-small)
 - embed_many(texts) - Generate embeddings for multiple texts in batch
 

@@ -42,16 +42,20 @@ try:
             conn.commit()
             return {"affected_rows": cur.rowcount}
 
-except ImportError:
+except Exception as _db_err:
+    _db_error_msg = f"Database not available: {_db_err}"
     def query(sql, params=None):
-        raise ImportError("psycopg2 not installed. Run: pip install psycopg2-binary")
+        raise RuntimeError(_db_error_msg)
     def execute(sql, params=None):
-        raise ImportError("psycopg2 not installed. Run: pip install psycopg2-binary")
+        raise RuntimeError(_db_error_msg)
 
 # R2/S3 storage (using boto3)
 try:
+    print("[DEBUG] Starting R2 setup...", file=sys.stderr)
     import boto3
+    print("[DEBUG] boto3 imported", file=sys.stderr)
     from botocore.config import Config
+    print("[DEBUG] botocore.config imported", file=sys.stderr)
     
     _s3_client = None
     def get_s3():
@@ -66,8 +70,10 @@ try:
                 region_name='auto'
             )
         return _s3_client
+    print("[DEBUG] get_s3 defined", file=sys.stderr)
     
     BUCKET = os.environ.get('R2_BUCKET_NAME', 'jot-storage')
+    print(f"[DEBUG] BUCKET={BUCKET}", file=sys.stderr)
     
     def upload_file(key, data, content_type=None):
         """Upload data to R2. data can be bytes or string."""
@@ -93,16 +99,41 @@ try:
         """Delete a file from R2."""
         get_s3().delete_object(Bucket=BUCKET, Key=key)
         return {"success": True}
+    
+    def get_upload_url(key, content_type, expires_in=3600):
+        """Generate a presigned URL for uploading a file."""
+        url = get_s3().generate_presigned_url(
+            'put_object',
+            Params={'Bucket': BUCKET, 'Key': key, 'ContentType': content_type},
+            ExpiresIn=expires_in
+        )
+        return {"url": url, "key": key, "expires_in": expires_in}
+    
+    def get_download_url(key, expires_in=3600):
+        """Generate a presigned URL for downloading a file."""
+        url = get_s3().generate_presigned_url(
+            'get_object',
+            Params={'Bucket': BUCKET, 'Key': key},
+            ExpiresIn=expires_in
+        )
+        return {"url": url, "key": key, "expires_in": expires_in}
+    print("[DEBUG] All R2 functions defined successfully", file=sys.stderr)
 
-except ImportError:
+except Exception as _r2_err:
+    print(f"[DEBUG] R2 setup FAILED: {_r2_err}", file=sys.stderr)
+    _r2_error_msg = f"R2 storage not available: {_r2_err}"
     def upload_file(key, data, content_type=None):
-        raise ImportError("boto3 not installed. Run: pip install boto3")
+        raise RuntimeError(_r2_error_msg)
     def download_file(key):
-        raise ImportError("boto3 not installed. Run: pip install boto3")
+        raise RuntimeError(_r2_error_msg)
     def list_files(prefix='', max_keys=100):
-        raise ImportError("boto3 not installed. Run: pip install boto3")
+        raise RuntimeError(_r2_error_msg)
     def delete_file(key):
-        raise ImportError("boto3 not installed. Run: pip install boto3")
+        raise RuntimeError(_r2_error_msg)
+    def get_upload_url(key, content_type, expires_in=3600):
+        raise RuntimeError(_r2_error_msg)
+    def get_download_url(key, expires_in=3600):
+        raise RuntimeError(_r2_error_msg)
 
 # OpenAI Embeddings
 try:
@@ -129,14 +160,27 @@ try:
         sorted_data = sorted(response.data, key=lambda x: x.index)
         return [item.embedding for item in sorted_data]
 
-except ImportError:
+except Exception as _openai_err:
+    _openai_error_msg = f"OpenAI not available: {_openai_err}"
     def embed(text, model="text-embedding-3-small"):
-        raise ImportError("openai not installed. Run: pip install openai")
+        raise RuntimeError(_openai_error_msg)
     def embed_many(texts, model="text-embedding-3-small"):
-        raise ImportError("openai not installed. Run: pip install openai")
+        raise RuntimeError(_openai_error_msg)
 
 # Global namespace for persistent variables
-_user_namespace = {}
+# Pre-populate with all helper functions so user code can access them
+_user_namespace = {
+    'query': query,
+    'execute': execute,
+    'upload_file': upload_file,
+    'download_file': download_file,
+    'list_files': list_files,
+    'delete_file': delete_file,
+    'get_upload_url': get_upload_url,
+    'get_download_url': get_download_url,
+    'embed': embed,
+    'embed_many': embed_many,
+}
 
 # Marker for end of response
 END_MARKER = "<<<END_OF_RESPONSE>>>"
