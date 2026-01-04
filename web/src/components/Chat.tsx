@@ -8,11 +8,7 @@ import {
   type KeyboardEvent,
   type WheelEvent,
 } from "react";
-import {
-  useChat,
-  type MessageWithId,
-  type StreamingBlock,
-} from "../hooks/useChat";
+import { useChat, type MessageWithId } from "../hooks/useChat";
 import { AssistantMessage } from "./Message";
 
 // Isolated input component - typing here doesn't re-render messages
@@ -110,22 +106,95 @@ function ChatInput({
   );
 }
 
-// Memoized message list - only re-renders when messages/streaming actually change
-const MessageList = memo(function MessageList({
+// Memoized user message - never re-renders once created
+const UserMessage = memo(function UserMessage({
+  content,
+}: {
+  content: string;
+}) {
+  return (
+    <div className="self-end max-w-[85%] py-2 px-4 bg-bg-tertiary text-text-primary rounded-lg ml-auto text-[0.95rem] select-text animate-fade-in whitespace-pre-wrap">
+      {content}
+    </div>
+  );
+});
+
+// Memoized assistant message wrapper
+const MemoizedAssistantMessage = memo(function MemoizedAssistantMessage({
+  message,
+  toolResults,
+}: {
+  message: Extract<MessageWithId["message"], { role: "assistant" }>;
+  toolResults: Map<string, { toolName: string; result: unknown }>;
+}) {
+  return <AssistantMessage message={message} toolResults={toolResults} />;
+});
+
+// Historical messages only - no streaming props means no re-render during streaming
+const HistoricalMessages = memo(function HistoricalMessages({
   messages,
-  streamingBlocks,
-  partialToolArgs,
-  isStreamingToolCall,
-  currentAssistantId,
-  isLoading,
 }: {
   messages: MessageWithId[];
-  streamingBlocks: StreamingBlock[];
-  partialToolArgs: string;
-  isStreamingToolCall: boolean;
-  currentAssistantId: string | null;
-  isLoading: boolean;
 }) {
+  // Build tool results map from messages
+  const toolResultsMap = new Map<
+    string,
+    { toolName: string; result: unknown }
+  >();
+  for (const msg of messages) {
+    if (msg.message.role === "tool") {
+      for (const part of msg.message.content) {
+        if (part.type === "tool-result") {
+          toolResultsMap.set(part.toolCallId, {
+            toolName: part.toolName,
+            result: part.output,
+          });
+        }
+      }
+    }
+  }
+
+  return (
+    <>
+      {messages.map((m) => {
+        if (m.message.role === "user") {
+          const content =
+            typeof m.message.content === "string"
+              ? m.message.content
+              : m.message.content
+                  .map((p) => (p.type === "text" ? p.text : ""))
+                  .join("");
+          return <UserMessage key={m.id} content={content} />;
+        }
+        if (m.message.role === "assistant") {
+          return (
+            <MemoizedAssistantMessage
+              key={m.id}
+              message={
+                m.message as Extract<typeof m.message, { role: "assistant" }>
+              }
+              toolResults={toolResultsMap}
+            />
+          );
+        }
+        return null; // tool messages rendered with their assistant
+      })}
+    </>
+  );
+});
+
+export function Chat() {
+  const {
+    messages,
+    isLoading,
+    sendMessage,
+    stopGeneration,
+    streamingBlocks,
+    partialToolArgs,
+    isStreamingToolCall,
+    currentAssistantId,
+  } = useChat();
+
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const shouldAutoscroll = useRef(true);
@@ -152,6 +221,7 @@ const MessageList = memo(function MessageList({
     [isAtBottom]
   );
 
+  // Autoscroll when messages change or streaming content updates
   useEffect(() => {
     if (shouldAutoscroll.current) {
       messagesEndRef.current?.scrollIntoView();
@@ -161,134 +231,45 @@ const MessageList = memo(function MessageList({
   const hasStreamingContent =
     currentAssistantId && (streamingBlocks.length > 0 || isStreamingToolCall);
 
-  // Build tool results map from messages
-  const toolResultsMap = new Map<
-    string,
-    { toolName: string; result: unknown }
-  >();
-  for (const msg of messages) {
-    if (msg.message.role === "tool") {
-      for (const part of msg.message.content) {
-        if (part.type === "tool-result") {
-          toolResultsMap.set(part.toolCallId, {
-            toolName: part.toolName,
-            result: part.output,
-          });
-        }
-      }
-    }
-  }
-
-  // Build list of items to render
-  type RenderItem =
-    | { type: "user"; id: string; content: string }
-    | { type: "assistant"; id: string; msg: MessageWithId }
-    | { type: "streaming"; id: string };
-
-  const items: RenderItem[] = [];
-  for (const m of messages) {
-    if (m.message.role === "user") {
-      const content =
-        typeof m.message.content === "string"
-          ? m.message.content
-          : m.message.content
-              .map((p) => (p.type === "text" ? p.text : ""))
-              .join("");
-      items.push({ type: "user", id: m.id, content });
-    } else if (m.message.role === "assistant") {
-      items.push({ type: "assistant", id: m.id, msg: m });
-    }
-  }
-
-  if (hasStreamingContent && currentAssistantId) {
-    items.push({ type: "streaming", id: currentAssistantId });
-  }
-
-  return (
-    <main
-      className="flex-1 overflow-y-auto p-10 relative z-[1] overscroll-contain"
-      ref={messagesContainerRef}
-      onWheel={handleWheel}
-      style={{ WebkitOverflowScrolling: "touch" }}
-    >
-      <div className="flex flex-col gap-10">
-        {messages.length === 0 && !isLoading && (
-          <div className="py-16">
-            <h1 className="text-2xl font-light text-text-secondary mb-4 tracking-tight">
-              tell me anything
-            </h1>
-          </div>
-        )}
-
-        {items.map((item) => {
-          if (item.type === "user") {
-            return (
-              <div
-                key={item.id}
-                className="self-end max-w-[85%] py-2 px-4 bg-bg-tertiary text-text-primary rounded-lg ml-auto text-[0.95rem] select-text animate-fade-in whitespace-pre-wrap"
-              >
-                {item.content}
-              </div>
-            );
-          }
-          if (item.type === "streaming") {
-            return (
-              <AssistantMessage
-                key={item.id}
-                streaming={{
-                  blocks: streamingBlocks,
-                  partialToolArgs,
-                  isStreamingToolCall,
-                }}
-              />
-            );
-          }
-          return (
-            <AssistantMessage
-              key={item.id}
-              message={
-                item.msg.message as Extract<
-                  typeof item.msg.message,
-                  { role: "assistant" }
-                >
-              }
-              toolResults={toolResultsMap}
-            />
-          );
-        })}
-
-        {isLoading && !hasStreamingContent && (
-          <div className="w-1.5 h-1.5 bg-text-muted rounded-full opacity-0 animate-breathe" />
-        )}
-
-        <div ref={messagesEndRef} />
-      </div>
-    </main>
-  );
-});
-
-export function Chat() {
-  const {
-    messages,
-    isLoading,
-    sendMessage,
-    stopGeneration,
-    streamingBlocks,
-    partialToolArgs,
-    isStreamingToolCall,
-    currentAssistantId,
-  } = useChat();
-
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      <MessageList
-        messages={messages}
-        streamingBlocks={streamingBlocks}
-        partialToolArgs={partialToolArgs}
-        isStreamingToolCall={isStreamingToolCall}
-        currentAssistantId={currentAssistantId}
-        isLoading={isLoading}
-      />
+      <main
+        className="flex-1 overflow-y-auto p-10 relative z-1 overscroll-contain"
+        ref={messagesContainerRef}
+        onWheel={handleWheel}
+        style={{ WebkitOverflowScrolling: "touch" }}
+      >
+        <div className="flex flex-col gap-10">
+          {messages.length === 0 && !isLoading && (
+            <div className="py-16">
+              <h1 className="text-2xl font-light text-text-secondary mb-4 tracking-tight">
+                tell me anything
+              </h1>
+            </div>
+          )}
+
+          {/* Historical messages - memoized, won't re-render during streaming */}
+          <HistoricalMessages messages={messages} />
+
+          {/* Streaming message - renders separately, doesn't affect historical */}
+          {hasStreamingContent && currentAssistantId && (
+            <AssistantMessage
+              key={currentAssistantId}
+              streaming={{
+                blocks: streamingBlocks,
+                partialToolArgs,
+                isStreamingToolCall,
+              }}
+            />
+          )}
+
+          {isLoading && !hasStreamingContent && (
+            <div className="w-1.5 h-1.5 bg-text-muted rounded-full opacity-0 animate-breathe" />
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
+      </main>
       <ChatInput
         onSend={sendMessage}
         onStop={stopGeneration}
