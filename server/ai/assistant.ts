@@ -135,7 +135,7 @@ print(df.describe().to_string())
   }),
 
   scratchpad: tool({
-    description: `Update the scratchpad (JSON object injected into every system prompt).
+    description: `Update the scratchpad (JSON object injected into every system prompt). It's stored in the \`ai_scratchpad\` table.
 
 Operations:
 - \`set\`: Set value at a dot-separated path (e.g. "people.john", "schema.entities")
