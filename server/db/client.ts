@@ -87,40 +87,102 @@ export async function saveMessage(role: "user" | "assistant", content: string) {
   return row;
 }
 
-// Scratchpad - AI's notes about its data architecture decisions
-// Stored in a simple key-value table
+// Scratchpad - AI's notes injected into every system prompt
+// Stored as JSONB for path-based updates
 export async function ensureScratchpadTable() {
-  await sql`
-    CREATE TABLE IF NOT EXISTS ai_scratchpad (
-      key TEXT PRIMARY KEY DEFAULT 'main',
-      content TEXT NOT NULL DEFAULT '',
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
+  // Check if old TEXT column exists and migrate to JSONB
+  const [existingCol] = await sql`
+    SELECT data_type FROM information_schema.columns 
+    WHERE table_name = 'ai_scratchpad' AND column_name = 'content'
   `;
+
+  if (existingCol?.data_type === "text") {
+    // Migrate: rename old column, add new JSONB column, copy data
+    await sql`ALTER TABLE ai_scratchpad RENAME COLUMN content TO content_old`;
+    await sql`ALTER TABLE ai_scratchpad ADD COLUMN content JSONB NOT NULL DEFAULT '{}'::jsonb`;
+    // Try to parse old content as JSON, fallback to wrapping in {notes: ...}
+    await sql`
+      UPDATE ai_scratchpad 
+      SET content = CASE 
+        WHEN content_old = '' THEN '{}'::jsonb
+        WHEN content_old ~ '^\\s*\\{' THEN content_old::jsonb
+        ELSE jsonb_build_object('_migrated_notes', content_old)
+      END
+    `;
+    await sql`ALTER TABLE ai_scratchpad DROP COLUMN content_old`;
+  } else if (!existingCol) {
+    // Fresh install - create table with JSONB
+    await sql`
+      CREATE TABLE IF NOT EXISTS ai_scratchpad (
+        key TEXT PRIMARY KEY DEFAULT 'main',
+        content JSONB NOT NULL DEFAULT '{}'::jsonb,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `;
+  }
+
   // Insert default row if not exists
   await sql`
     INSERT INTO ai_scratchpad (key, content)
-    VALUES ('main', '')
+    VALUES ('main', '{}'::jsonb)
     ON CONFLICT (key) DO NOTHING
   `;
 }
 
-export async function getScratchpad(): Promise<string> {
+// Returns the full scratchpad as a JSON object
+export async function getScratchpad(): Promise<Record<string, unknown>> {
   try {
     const [row] = await sql`
       SELECT content FROM ai_scratchpad WHERE key = 'main'
     `;
-    return row?.content ?? "";
+    return (row?.content as Record<string, unknown>) ?? {};
   } catch {
     // Table might not exist yet
-    return "";
+    return {};
   }
 }
 
-export async function updateScratchpad(content: string): Promise<void> {
+// Update a specific path in the scratchpad
+// path: JSON path like "relationships.john" or "projects.active"
+// value: the value to set (null to delete the path)
+export async function updateScratchpadPath(
+  path: string,
+  value: unknown
+): Promise<void> {
+  const pathParts = path.split(".");
+
+  if (value === null) {
+    // Delete the path - use #- operator to remove the key
+    await sql`
+      UPDATE ai_scratchpad 
+      SET content = content #- ${pathParts},
+          updated_at = now()
+      WHERE key = 'main'
+    `;
+  } else {
+    // Set the value at path using sql.json() to properly serialize
+    await sql`
+      UPDATE ai_scratchpad 
+      SET content = jsonb_set(
+        content,
+        ${pathParts},
+        ${sql.json(value)},
+        true
+      ),
+      updated_at = now()
+      WHERE key = 'main'
+    `;
+  }
+}
+
+// Replace the entire scratchpad (for when AI wants to restructure)
+export async function replaceScratchpad(
+  content: Record<string, unknown>
+): Promise<void> {
   await sql`
-    INSERT INTO ai_scratchpad (key, content, updated_at)
-    VALUES ('main', ${content}, now())
-    ON CONFLICT (key) DO UPDATE SET content = ${content}, updated_at = now()
+    UPDATE ai_scratchpad 
+    SET content = ${sql.json(content)},
+        updated_at = now()
+    WHERE key = 'main'
   `;
 }
