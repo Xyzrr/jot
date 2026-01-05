@@ -117,18 +117,57 @@ export function useChat() {
         setState((prev) => ({ ...prev, isUploading: false }));
       }
 
-      // Build full message content (file info + user text)
-      let content = text;
+      // Build message content - use multi-modal format if we have images
+      type ContentPart =
+        | { type: "text"; text: string }
+        | { type: "image"; image: string };
+
+      let content: string | ContentPart[];
+
       if (uploadedFiles && uploadedFiles.length > 0) {
-        const fileInfo = uploadedFiles
-          .map(
-            (f) =>
-              `[Attached file: ${f.name} (${f.type}, ${formatFileSize(
-                f.size
-              )})] R2 key: ${f.key}`
-          )
-          .join("\n");
-        content = fileInfo + (text ? "\n\n" + text : "");
+        const parts: ContentPart[] = [];
+
+        // Separate images from other files
+        const images = uploadedFiles.filter((f) => f.type.startsWith("image/"));
+        const otherFiles = uploadedFiles.filter(
+          (f) => !f.type.startsWith("image/")
+        );
+
+        // Add text info for non-image files (AI can access via Python)
+        if (otherFiles.length > 0) {
+          const fileInfo = otherFiles
+            .map(
+              (f) =>
+                `[Attached file: ${f.name} (${f.type}, ${formatFileSize(
+                  f.size
+                )})] R2 key: ${f.key}`
+            )
+            .join("\n");
+          parts.push({ type: "text", text: fileInfo });
+        }
+
+        // Add images directly so AI can see them (also include R2 key for storage reference)
+        for (const img of images) {
+          parts.push({
+            type: "text",
+            text: `[Image: ${img.name} (${formatFileSize(img.size)})] R2 key: ${
+              img.key
+            }`,
+          });
+          parts.push({ type: "image", image: img.url });
+        }
+
+        // Add user's text message
+        if (text) {
+          parts.push({ type: "text", text });
+        }
+
+        content =
+          parts.length === 1 && parts[0].type === "text"
+            ? parts[0].text
+            : parts;
+      } else {
+        content = text;
       }
 
       const userMessage: MessageWithId = {

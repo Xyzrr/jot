@@ -430,7 +430,10 @@ const UserMessage = memo(function UserMessage({
   // Filter out the file info lines from content for cleaner display
   const displayContent = content
     .split("\n")
-    .filter((line) => !line.startsWith("[Attached file:"))
+    .filter(
+      (line) =>
+        !line.startsWith("[Attached file:") && !line.startsWith("[Image:")
+    )
     .join("\n")
     .trim();
 
@@ -496,7 +499,7 @@ const HistoricalMessages = memo(function HistoricalMessages({
               ? m.message.content
               : m.message.content
                   .map((p) => (p.type === "text" ? p.text : ""))
-                  .join("");
+                  .join("\n");
           return <UserMessage key={m.id} content={content} files={m.files} />;
         }
         if (m.message.role === "assistant") {

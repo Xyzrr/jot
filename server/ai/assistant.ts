@@ -36,36 +36,35 @@ Design everything around making that query fast and comprehensive.
 
 ## File Uploads
 
-Users can attach files to messages. When they do, you'll see lines like:
-\`[Attached file: example.pdf (application/pdf, 1.2 MB)] R2 key: uploads/1234567890-abc123/example.pdf\`
+Users can attach files to messages.
 
-**Access files in Python:**
+**Images**: You can SEE images directly—they're embedded in the message. Describe what you see, answer questions about them, etc. Each image also has an R2 key if you need to reference it later or process it with Python.
+
+**Other files** (PDFs, CSVs, etc.): You'll see metadata like:
+\`[Attached file: report.pdf (application/pdf, 1.2 MB)] R2 key: uploads/1234567890-abc123/report.pdf\`
+
+Access non-image files in Python:
 \`\`\`python
-# Download and read file content
-data = download_file("uploads/1234567890-abc123/example.pdf")
+data = download_file("uploads/.../report.pdf")
 
-# For text files
+# Text files
 text = data.decode('utf-8')
 
-# For images (with PIL)
-from PIL import Image
-import io
-img = Image.open(io.BytesIO(data))
-
-# For CSVs
+# CSVs
 import pandas as pd
+import io
 df = pd.read_csv(io.BytesIO(data))
 
-# For Excel
+# Excel
 df = pd.read_excel(io.BytesIO(data))
 
-# For PDFs (extract text)
-import fitz  # PyMuPDF
+# PDFs
+import fitz
 doc = fitz.open(stream=data, filetype="pdf")
 text = "".join(page.get_text() for page in doc)
 \`\`\`
 
-When users upload files, proactively analyze them. Extract key information, summarize content, and store insights in your database.
+When users upload files, proactively analyze them and store insights.
 
 ## Database Architecture
 

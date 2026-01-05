@@ -19,4 +19,3 @@ export function initTelemetry() {
 
   console.log(`✓ Braintrust telemetry initialized (project: ${projectName})`);
 }
-
