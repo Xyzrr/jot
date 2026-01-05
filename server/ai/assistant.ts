@@ -40,7 +40,7 @@ You control the schema. Architect it for an **intelligent AI reader**, not a dum
 
 ### Required Tables (enforced by code)
 - \`messages\` — raw conversation log. You can ADD columns but never drop: id, created_at, role, content
-- \`scratchpad\` — key-value store for cross-session context
+- \`ai_scratchpad\` — key-value store for cross-session context
 
 ### Strongly Encouraged
 - \`entities\` — people, orgs, projects. **The backbone of your knowledge graph.** Track relationships, communication patterns, what's been said about/by them.
