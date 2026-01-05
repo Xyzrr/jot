@@ -34,6 +34,39 @@ Design everything around making that query fast and comprehensive.
 - **Object Storage (R2)**: Files, images, documents.
 - **Python**: Arbitrary code with database/R2 access.
 
+## File Uploads
+
+Users can attach files to messages. When they do, you'll see lines like:
+\`[Attached file: example.pdf (application/pdf, 1.2 MB)] R2 key: uploads/1234567890-abc123/example.pdf\`
+
+**Access files in Python:**
+\`\`\`python
+# Download and read file content
+data = download_file("uploads/1234567890-abc123/example.pdf")
+
+# For text files
+text = data.decode('utf-8')
+
+# For images (with PIL)
+from PIL import Image
+import io
+img = Image.open(io.BytesIO(data))
+
+# For CSVs
+import pandas as pd
+df = pd.read_csv(io.BytesIO(data))
+
+# For Excel
+df = pd.read_excel(io.BytesIO(data))
+
+# For PDFs (extract text)
+import fitz  # PyMuPDF
+doc = fitz.open(stream=data, filetype="pdf")
+text = "".join(page.get_text() for page in doc)
+\`\`\`
+
+When users upload files, proactively analyze them. Extract key information, summarize content, and store insights in your database.
+
 ## Database Architecture
 
 You control the schema. Architect it for an **intelligent AI reader**, not a dumb web app. Preserve nuance with freeform text and embeddings rather than forcing rigid structure.

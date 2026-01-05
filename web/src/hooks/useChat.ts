@@ -4,6 +4,22 @@ import type { ModelMessage } from "ai";
 // Re-export for convenience
 export type { ModelMessage };
 
+// Format file size for display
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+// Uploaded file metadata (matches server response)
+export interface UploadedFile {
+  key: string;
+  name: string;
+  type: string;
+  size: number;
+  url: string;
+}
+
 // Block types for streaming display (preserves order)
 export type StreamingBlock =
   | { type: "text"; content: string }
@@ -19,6 +35,8 @@ export type StreamingBlock =
 export interface MessageWithId {
   id: string;
   message: ModelMessage;
+  // Attached files (for display in UI)
+  files?: UploadedFile[];
 }
 
 interface ChatState {
@@ -31,6 +49,29 @@ interface ChatState {
   isStreamingToolCall: boolean;
   // ID of the currently streaming assistant message (for stable React keys)
   currentAssistantId: string | null;
+  // Upload progress
+  isUploading: boolean;
+}
+
+// Upload files to the server
+async function uploadFiles(files: File[]): Promise<UploadedFile[]> {
+  const formData = new FormData();
+  for (const file of files) {
+    formData.append("files", file);
+  }
+
+  const response = await fetch("/api/upload", {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || `Upload failed: ${response.statusText}`);
+  }
+
+  const result = await response.json();
+  return result.files;
 }
 
 export function useChat() {
@@ -41,15 +82,59 @@ export function useChat() {
     partialToolArgs: "",
     isStreamingToolCall: false,
     currentAssistantId: null,
+    isUploading: false,
   });
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, files?: File[]) => {
+      // Handle file uploads first if any
+      let uploadedFiles: UploadedFile[] | undefined;
+
+      if (files && files.length > 0) {
+        setState((prev) => ({ ...prev, isUploading: true }));
+        try {
+          uploadedFiles = await uploadFiles(files);
+        } catch (error) {
+          const err = error as Error;
+          setState((prev) => ({
+            ...prev,
+            isUploading: false,
+            messages: [
+              ...prev.messages,
+              {
+                id: crypto.randomUUID(),
+                message: {
+                  role: "assistant",
+                  content: `<p>⚠️ <strong>Upload failed:</strong> ${err.message}</p>`,
+                },
+              },
+            ],
+          }));
+          return;
+        }
+        setState((prev) => ({ ...prev, isUploading: false }));
+      }
+
+      // Build user message content with file information
+      let messageContent = content;
+      if (uploadedFiles && uploadedFiles.length > 0) {
+        const fileInfo = uploadedFiles
+          .map(
+            (f) =>
+              `[Attached file: ${f.name} (${f.type}, ${formatFileSize(
+                f.size
+              )})] R2 key: ${f.key}`
+          )
+          .join("\n");
+        messageContent = fileInfo + (content ? "\n\n" + content : "");
+      }
+
       const userMessage: MessageWithId = {
         id: crypto.randomUUID(),
-        message: { role: "user", content },
+        message: { role: "user", content: messageContent },
+        files: uploadedFiles,
       };
 
       // Placeholder for assistant response
@@ -527,6 +612,7 @@ export function useChat() {
   return {
     messages: state.messages,
     isLoading: state.isLoading,
+    isUploading: state.isUploading,
     // Streaming state for UI
     streamingBlocks: state.streamingBlocks,
     partialToolArgs: state.partialToolArgs,

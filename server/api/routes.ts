@@ -8,7 +8,16 @@ import {
   executeSQL,
   saveMessage,
 } from "../db/client";
-import { listFiles } from "../storage/r2";
+import { listFiles, uploadFile, getDownloadUrl } from "../storage/r2";
+
+// File metadata for uploaded files
+export interface UploadedFile {
+  key: string;
+  name: string;
+  type: string;
+  size: number;
+  url: string;
+}
 
 const api = new Hono();
 
@@ -23,6 +32,55 @@ api.get("/health", async (c) => {
     database: dbConnected ? "connected" : "disconnected",
     timestamp: new Date().toISOString(),
   });
+});
+
+// File upload endpoint - accepts multiple files
+api.post("/upload", async (c) => {
+  try {
+    const formData = await c.req.formData();
+    const files = formData.getAll("files") as File[];
+
+    if (files.length === 0) {
+      return c.json({ error: "No files provided" }, 400);
+    }
+
+    const uploaded: UploadedFile[] = [];
+
+    for (const file of files) {
+      // Generate unique key with timestamp and original filename
+      const timestamp = Date.now();
+      const randomId = Math.random().toString(36).substring(2, 10);
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const key = `uploads/${timestamp}-${randomId}/${safeName}`;
+
+      // Read file data
+      const arrayBuffer = await file.arrayBuffer();
+      const data = new Uint8Array(arrayBuffer);
+
+      // Upload to R2
+      const result = await uploadFile(key, data, file.type);
+      if (!result.success) {
+        return c.json({ error: `Failed to upload ${file.name}: ${result.error}` }, 500);
+      }
+
+      // Generate presigned download URL (valid for 24 hours)
+      const url = await getDownloadUrl(key, 86400);
+
+      uploaded.push({
+        key,
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        url,
+      });
+    }
+
+    return c.json({ files: uploaded });
+  } catch (error) {
+    const err = error as Error;
+    console.error("[upload] Error:", err.message);
+    return c.json({ error: err.message }, 500);
+  }
 });
 
 // Streaming chat endpoint using SSE
