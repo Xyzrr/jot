@@ -343,6 +343,12 @@ export async function* chatStream(
       tools,
       stopWhen: stepCountIs(10), // Allow multiple tool calls in sequence
       abortSignal,
+      experimental_telemetry: {
+        isEnabled: true,
+        metadata: {
+          messageCount: messages.length.toString(),
+        },
+      },
     });
 
     // Track which tool calls are for code execution (to stream their args)

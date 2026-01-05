@@ -82,7 +82,8 @@ export async function getDownloadUrl(
 export async function downloadFile(
   key: string
 ): Promise<
-  { success: true; data: Buffer; contentType?: string } | { success: false; error: string }
+  | { success: true; data: Buffer; contentType?: string }
+  | { success: false; error: string }
 > {
   try {
     const response = await r2.send(

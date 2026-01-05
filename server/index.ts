@@ -1,3 +1,8 @@
+import { initTelemetry } from "./instrumentation";
+
+// Initialize telemetry before anything else
+initTelemetry();
+
 import { Hono } from "hono";
 import { api } from "./api/routes";
 import { config } from "./config";

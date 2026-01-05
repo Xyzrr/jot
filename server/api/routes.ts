@@ -60,7 +60,10 @@ api.post("/upload", async (c) => {
       // Upload to R2
       const result = await uploadFile(key, data, file.type);
       if (!result.success) {
-        return c.json({ error: `Failed to upload ${file.name}: ${result.error}` }, 500);
+        return c.json(
+          { error: `Failed to upload ${file.name}: ${result.error}` },
+          500
+        );
       }
 
       // Generate presigned download URL (valid for 24 hours)
