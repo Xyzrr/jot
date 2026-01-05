@@ -88,7 +88,7 @@ export function useChat() {
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const sendMessage = useCallback(
-    async (content: string, files?: File[]) => {
+    async (text: string, files?: File[]) => {
       // Handle file uploads first if any
       let uploadedFiles: UploadedFile[] | undefined;
 
@@ -117,8 +117,8 @@ export function useChat() {
         setState((prev) => ({ ...prev, isUploading: false }));
       }
 
-      // Build user message content with file information
-      let messageContent = content;
+      // Build full message content (file info + user text)
+      let content = text;
       if (uploadedFiles && uploadedFiles.length > 0) {
         const fileInfo = uploadedFiles
           .map(
@@ -128,12 +128,12 @@ export function useChat() {
               )})] R2 key: ${f.key}`
           )
           .join("\n");
-        messageContent = fileInfo + (content ? "\n\n" + content : "");
+        content = fileInfo + (text ? "\n\n" + text : "");
       }
 
       const userMessage: MessageWithId = {
         id: crypto.randomUUID(),
-        message: { role: "user", content: messageContent },
+        message: { role: "user", content },
         files: uploadedFiles,
       };
 
